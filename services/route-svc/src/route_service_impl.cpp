@@ -14,9 +14,8 @@ RouteServiceImpl::RouteServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg)
   try {
     pqxx::work txn(pg_->conn());
 
-    // 1) 解析入口中继 -> 账号 -> 路由计划（选取最近创建作为默认）
     auto r1 = txn.exec_params(
-                "SELECT rp.plan_id, rp.name FROM core.trunks t "
+                "SELECT a.account_id, rp.plan_id, rp.name FROM core.trunks t "
                 "JOIN core.accounts a ON a.account_id=t.account_id "
                 "JOIN routing.route_plans rp ON rp.account_id=a.account_id "
                 "WHERE t.name=$1 ORDER BY rp.plan_id DESC LIMIT 1", req->ingress_trunk());
@@ -25,11 +24,22 @@ RouteServiceImpl::RouteServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg)
       spdlog::warn("No route plan for trunk {}", req->ingress_trunk());
       return ::grpc::Status(::grpc::StatusCode::NOT_FOUND, "route plan not found");
     }
-    auto plan_id = r1[0][0].as<long long>();
-    auto plan_name = r1[0][1].as<std::string>();
+    auto account_id = r1[0][0].as<long long>();
+    auto plan_id = r1[0][1].as<long long>();
+    auto plan_name = r1[0][2].as<std::string>();
 
-    // 2) 最长前缀匹配 + 供应商候选
     auto to = req->e164_to().empty() ? req->to_uri() : req->e164_to();
+
+    // 黑名单检查（最长前缀存在则拒绝）
+    auto bl = txn.exec_params(
+      "SELECT 1 FROM security.blacklist_destinations b \n"
+      "JOIN routing.prefixes p ON p.prefix_id=b.prefix_id \n"
+      "WHERE (b.account_id IS NULL OR b.account_id=$1) AND $2 LIKE p.prefix || '%' AND (b.expire_at IS NULL OR b.expire_at>now()) \n"
+      "ORDER BY length(p.prefix) DESC LIMIT 1", account_id, to);
+    if (!bl.empty()) {
+      return ::grpc::Status(::grpc::StatusCode::PERMISSION_DENIED, "destination blacklisted");
+    }
+
     auto r2 = txn.exec_params(
       "WITH cand AS (\n"
       "  SELECT p.prefix, pe.priority, pe.weight, v.name AS vendor, t.name AS trunk, t.auth_data->>'host' AS ip, \n"
@@ -48,14 +58,26 @@ RouteServiceImpl::RouteServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg)
       return ::grpc::Status(::grpc::StatusCode::NOT_FOUND, "no route candidates");
     }
 
+    // 质量衰减：从 Redis 查询 vendor/trunk penalty，乘到 weight
+    auto& red = redis_->get();
+
     for (const auto& row : r2) {
+      double penalty = 1.0;
+      try {
+        auto key = std::string("quality:trunk:") + row[4].c_str();
+        auto v = red.hget(key, "penalty");
+        if (v) penalty = std::stod(*v);
+      } catch (...) {}
+      int base_weight = row[2].as<int>();
+      int scaled_weight = std::max(1, static_cast<int>(base_weight * penalty));
+
       Candidate* c = resp->add_candidates();
       c->set_vendor(row[3].as<std::string>());
       c->set_egress_trunk(row[4].as<std::string>());
       c->set_ip(row[5].as<std::string>());
       c->set_port(row[6].as<int>());
       c->set_priority(row[1].as<int>());
-      c->set_weight(row[2].as<int>());
+      c->set_weight(scaled_weight);
     }
     resp->set_route_plan(plan_name);
     resp->set_policy_version("v1");

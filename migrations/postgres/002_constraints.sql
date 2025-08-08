@@ -8,6 +8,9 @@ CREATE INDEX IF NOT EXISTS idx_plan_entries_plan ON routing.plan_entries(plan_id
 CREATE INDEX IF NOT EXISTS idx_plan_entries_prefix ON routing.plan_entries(prefix_id);
 CREATE INDEX IF NOT EXISTS idx_plan_entries_vendor ON routing.plan_entries(vendor_id);
 CREATE INDEX IF NOT EXISTS idx_blacklist_account ON security.blacklist_destinations(account_id);
+CREATE INDEX IF NOT EXISTS idx_trunks_name ON core.trunks(name);
+CREATE INDEX IF NOT EXISTS idx_route_plans_account ON routing.route_plans(account_id);
+CREATE INDEX IF NOT EXISTS idx_blacklist_prefix ON security.blacklist_destinations(prefix_id);
 
 -- 唯一性与时间区间冲突检查：费率版本不重叠（同账户同名）
 CREATE UNIQUE INDEX IF NOT EXISTS uq_rate_table_name ON billing.rate_tables(account_id, name, effective_from);

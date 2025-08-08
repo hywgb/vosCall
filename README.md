@@ -96,3 +96,10 @@ BIND=0.0.0.0:8080 ROUTE_SVC_ADDR=127.0.0.1:7001 ./build/apps/admin-api/admin-api
 - 货币：`./build/tools/loader/loader currencies scripts/iso4217_currencies.csv`
 - E.164：`./build/tools/loader/loader e164 scripts/e164_prefixes.csv`
 - 汇率：建议使用 psql 与 `scripts/load_fx.sql`，或后续引入 loader 支持
+
+## 新服务
+- auth-svc：`PG_URI=... REDIS_URI=... BIND=0.0.0.0:7004 ./build/services/auth-svc/auth-svc`
+- observe-svc：`REDIS_URI=... BIND=0.0.0.0:7005 ./build/services/observe-svc/observe-svc`
+
+## 质量路由
+- observe-svc 接收 RTCP 统计，按键 `quality:trunk:<trunk>` 设置 `penalty`（0.0-1.0）；route-svc 将按该值缩放供应商权重，劣化线路会自动下沉。

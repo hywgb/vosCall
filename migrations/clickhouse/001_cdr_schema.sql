@@ -54,3 +54,8 @@ SELECT
   avgIf(pdd_ms, pdd_ms > 0) AS avg_pdd_ms
 FROM cdr
 GROUP BY day, vendor, egress_trunk;
+
+-- 可选：投影用于快速查询成功接通与账单秒
+ALTER TABLE cdr ADD PROJECTION IF NOT EXISTS cdr_proj AS
+SELECT call_id, attempt, start_ts, answer_ts, end_ts, (ifNull(toUInt32(end_ts - answer_ts), 0)) AS billsec, vendor, egress_trunk, sip_final_code
+ORDER BY (vendor, egress_trunk, start_ts);

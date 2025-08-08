@@ -37,6 +37,9 @@ message SettleRequest {
   string call_id = 1;
   string auth_token = 2;
   uint32 billsec = 3;
+  string account_code = 4;
+  string e164_to = 5;
+  string currency = 6;
 }
 
 message SettleResponse {

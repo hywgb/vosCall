@@ -129,6 +129,32 @@ services:
     depends_on:
       - route-svc
 
+  auth-svc:
+    build:
+      context: ..
+      dockerfile: Dockerfile.service
+    environment:
+      PG_URI: postgresql://admin:admin@postgres:5432/hyperswitch
+      REDIS_URI: tcp://redis:6379
+      BIND: 0.0.0.0:7004
+    ports:
+      - "7004:7004"
+    depends_on:
+      - postgres
+      - redis
+
+  observe-svc:
+    build:
+      context: ..
+      dockerfile: Dockerfile.service
+    environment:
+      REDIS_URI: tcp://redis:6379
+      BIND: 0.0.0.0:7005
+    ports:
+      - "7005:7005"
+    depends_on:
+      - redis
+
 volumes:
   pg_data: {}
   redis_data: {}
