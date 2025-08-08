@@ -1,0 +1,51 @@
+syntax = "proto3";
+package hyperswitch.billing;
+
+message AuthorizeRequest {
+  string call_id = 1;
+  string account_code = 2;
+  string currency = 3;
+  uint32 expected_secs = 4; // for pre-authorization estimation
+}
+
+message AuthorizeResponse {
+  bool allowed = 1;
+  string reason = 2;
+  string auth_token = 3;
+  double authorized_amount = 4;
+}
+
+message RateRequest {
+  string account_code = 1;
+  string e164_to = 2;
+  string currency = 3;
+  uint32 billsec = 4;
+  string rate_table = 5; // optional override
+  string as_of = 6; // ISO8601
+}
+
+message RateResponse {
+  double unit_price = 1;
+  uint32 step_sec = 2;
+  uint32 min_time_sec = 3;
+  double connection_fee = 4;
+  string rounding_mode = 5;
+  double amount = 6; // computed
+}
+
+message SettleRequest {
+  string call_id = 1;
+  string auth_token = 2;
+  uint32 billsec = 3;
+}
+
+message SettleResponse {
+  bool success = 1;
+  double final_amount = 2;
+}
+
+service BillingService {
+  rpc Authorize (AuthorizeRequest) returns (AuthorizeResponse);
+  rpc Rate (RateRequest) returns (RateResponse);
+  rpc Settle (SettleRequest) returns (SettleResponse);
+}

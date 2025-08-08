@@ -1,0 +1,18 @@
+# build
+/build/
+/.cache/
+/.vscode/
+/*.log
+*.swp
+
+# deps
+/vcpkg_installed/
+/third_party/
+
+# data
+/data/
+**/*.csv
+**/*.json
+
+# secrets
+.env

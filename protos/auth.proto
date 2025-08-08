@@ -1,0 +1,33 @@
+syntax = "proto3";
+package hyperswitch.auth;
+
+message SipAuthRequest {
+  string src_ip = 1;
+  string username = 2; // optional for digest
+  string realm = 3;
+  string trunk_hint = 4;
+}
+
+message SipAuthResponse {
+  bool allowed = 1;
+  string account_code = 2;
+  string trunk_name = 3;
+  string reason = 4;
+}
+
+message RiskEvalRequest {
+  string account_code = 1;
+  string e164_to = 2;
+  uint32 cps = 3;
+  uint32 concurrent = 4;
+}
+
+message RiskEvalResponse {
+  bool allowed = 1;
+  string reason = 2;
+}
+
+service AuthService {
+  rpc SipAuth (SipAuthRequest) returns (SipAuthResponse);
+  rpc RiskEval (RiskEvalRequest) returns (RiskEvalResponse);
+}
