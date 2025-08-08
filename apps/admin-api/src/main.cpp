@@ -14,11 +14,19 @@
 static std::atomic<uint64_t> g_route_pick_requests{0};
 static std::atomic<uint64_t> g_route_pick_failures{0};
 
+static bool check_admin(const httplib::Request& req, const std::string& token){
+  if (token.empty()) return true; // disabled
+  auto it = req.headers.find("x-admin-token");
+  if (it == req.headers.end()) return false;
+  return it->second == token;
+}
+
 int main() {
   hs::init_logging(hs::get_env("LOG_LEVEL", "info"));
   std::string bind = hs::get_env("BIND", "0.0.0.0:8080");
   std::string route_addr = hs::get_env("ROUTE_SVC_ADDR", "localhost:7001");
   std::string pg_uri = hs::get_env("PG_URI", "postgresql://admin:admin@localhost:5432/hyperswitch");
+  std::string admin_token = hs::get_env("ADMIN_TOKEN", "");
   int route_timeout_ms =  hs::get_env("ROUTE_TIMEOUT_MS", "800").empty() ? 800 : std::stoi(hs::get_env("ROUTE_TIMEOUT_MS", "800"));
 
   hs::Pg pg(pg_uri);
@@ -41,8 +49,8 @@ int main() {
     res.set_content(body, "text/plain; version=0.0.4");
   });
 
-  // REST: /api/accounts
-  svr.Get("/api/accounts", [&](const httplib::Request&, httplib::Response& res){
+  // REST: /api/accounts (GET)
+  svr.Get("/api/accounts", [&](const httplib::Request& req, httplib::Response& res){
     try {
       pqxx::work tx(pg.conn());
       auto r = tx.exec("SELECT account_id, account_code, name, type, currency, prepaid, balance, credit_limit, status FROM core.accounts ORDER BY account_id ASC");
@@ -66,8 +74,29 @@ int main() {
     }
   });
 
-  // REST: /api/trunks
-  svr.Get("/api/trunks", [&](const httplib::Request&, httplib::Response& res){
+  // REST: /api/accounts (POST)
+  svr.Post("/api/accounts", [&](const httplib::Request& req, httplib::Response& res){
+    if (!check_admin(req, admin_token)) { res.status = 401; res.set_content("unauthorized","text/plain"); return; }
+    try {
+      auto j = nlohmann::json::parse(req.body);
+      std::string account_code = j.at("account_code");
+      std::string name = j.at("name");
+      std::string type = j.value("type","customer");
+      std::string currency = j.value("currency","USD");
+      bool prepaid = j.value("prepaid", true);
+      double credit_limit = j.value("credit_limit", 0.0);
+      pqxx::work tx(pg.conn());
+      tx.exec_params("INSERT INTO core.accounts(account_code,name,type,currency,prepaid,credit_limit) VALUES($1,$2,$3,$4,$5,$6)",
+                     account_code, name, type, currency, prepaid, credit_limit);
+      tx.commit();
+      res.status = 201; res.set_content(nlohmann::json({{"ok",true}}).dump(), "application/json");
+    } catch (const std::exception& ex) {
+      res.status = 400; res.set_content(nlohmann::json({{"error", ex.what()}}).dump(), "application/json");
+    }
+  });
+
+  // REST: /api/trunks (GET)
+  svr.Get("/api/trunks", [&](const httplib::Request& req, httplib::Response& res){
     try {
       pqxx::work tx(pg.conn());
       auto r = tx.exec(
@@ -89,6 +118,31 @@ int main() {
       res.set_content(arr.dump(), "application/json");
     } catch (const std::exception& ex) {
       res.status = 500; res.set_content(nlohmann::json({{"error", ex.what()}}).dump(), "application/json");
+    }
+  });
+
+  // REST: /api/trunks (POST)
+  svr.Post("/api/trunks", [&](const httplib::Request& req, httplib::Response& res){
+    if (!check_admin(req, admin_token)) { res.status = 401; res.set_content("unauthorized","text/plain"); return; }
+    try {
+      auto j = nlohmann::json::parse(req.body);
+      std::string account_code = j.at("account_code");
+      std::string name = j.at("name");
+      std::string direction = j.at("direction"); // ingress|egress
+      std::string auth_mode = j.at("auth_mode"); // ip|digest
+      nlohmann::json auth_data = j.value("auth_data", nlohmann::json::object());
+      int max_cps = j.value("max_cps", 0);
+      int max_concurrent = j.value("max_concurrent", 0);
+      pqxx::work tx(pg.conn());
+      auto acc = tx.exec_params("SELECT account_id FROM core.accounts WHERE account_code=$1", account_code);
+      if (acc.empty()) throw std::runtime_error("account not found");
+      long long account_id = acc[0][0].as<long long>();
+      tx.exec_params("INSERT INTO core.trunks(account_id,name,direction,auth_mode,auth_data,max_cps,max_concurrent) VALUES($1,$2,$3,$4,$5,$6,$7)",
+                     account_id, name, direction, auth_mode, auth_data.dump(), max_cps, max_concurrent);
+      tx.commit();
+      res.status = 201; res.set_content(nlohmann::json({{"ok",true}}).dump(), "application/json");
+    } catch (const std::exception& ex) {
+      res.status = 400; res.set_content(nlohmann::json({{"error", ex.what()}}).dump(), "application/json");
     }
   });
 
@@ -139,6 +193,7 @@ int main() {
 
   // REST: /api/rates/import (stub)
   svr.Post("/api/rates/import", [&](const httplib::Request& req, httplib::Response& res){
+    if (!check_admin(req, admin_token)) { res.status = 401; res.set_content("unauthorized","text/plain"); return; }
     res.status = 202;
     res.set_content(nlohmann::json({{"status","accepted"},{"detail","rate import not implemented yet"}}).dump(), "application/json");
   });
