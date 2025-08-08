@@ -128,10 +128,12 @@ services:
       SERVICE: admin-api
       BIND: 0.0.0.0:8080
       ROUTE_SVC_ADDR: route-svc:7001
+      PG_URI: postgresql://admin:admin@postgres:5432/hyperswitch
     ports:
       - "8080:8080"
     depends_on:
       - route-svc
+      - postgres
 
   auth-svc:
     build:

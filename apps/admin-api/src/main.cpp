@@ -8,6 +8,7 @@
 #include <atomic>
 #include "common/env.hpp"
 #include "common/log.hpp"
+#include "common/pg.hpp"
 #include <hyperswitch/routing/route.grpc.pb.h>
 
 static std::atomic<uint64_t> g_route_pick_requests{0};
@@ -17,7 +18,10 @@ int main() {
   hs::init_logging(hs::get_env("LOG_LEVEL", "info"));
   std::string bind = hs::get_env("BIND", "0.0.0.0:8080");
   std::string route_addr = hs::get_env("ROUTE_SVC_ADDR", "localhost:7001");
+  std::string pg_uri = hs::get_env("PG_URI", "postgresql://admin:admin@localhost:5432/hyperswitch");
   int route_timeout_ms =  hs::get_env("ROUTE_TIMEOUT_MS", "800").empty() ? 800 : std::stoi(hs::get_env("ROUTE_TIMEOUT_MS", "800"));
+
+  hs::Pg pg(pg_uri);
 
   auto channel = grpc::CreateChannel(route_addr, grpc::InsecureChannelCredentials());
   auto route_stub = hyperswitch::routing::RouteService::NewStub(channel);
@@ -36,6 +40,110 @@ int main() {
     body += "route_pick_failures_total{service=\"admin-api\"} " + std::to_string(g_route_pick_failures.load()) + "\n";
     res.set_content(body, "text/plain; version=0.0.4");
   });
+
+  // REST: /api/accounts
+  svr.Get("/api/accounts", [&](const httplib::Request&, httplib::Response& res){
+    try {
+      pqxx::work tx(pg.conn());
+      auto r = tx.exec("SELECT account_id, account_code, name, type, currency, prepaid, balance, credit_limit, status FROM core.accounts ORDER BY account_id ASC");
+      nlohmann::json arr = nlohmann::json::array();
+      for (const auto& row : r) {
+        arr.push_back({
+          {"account_id", row[0].as<long long>()},
+          {"account_code", row[1].as<std::string>()},
+          {"name", row[2].as<std::string>()},
+          {"type", row[3].as<std::string>()},
+          {"currency", row[4].as<std::string>()},
+          {"prepaid", row[5].as<bool>()},
+          {"balance", row[6].as<double>()},
+          {"credit_limit", row[7].as<double>()},
+          {"status", row[8].as<std::string>()}
+        });
+      }
+      res.set_content(arr.dump(), "application/json");
+    } catch (const std::exception& ex) {
+      res.status = 500; res.set_content(nlohmann::json({{"error", ex.what()}}).dump(), "application/json");
+    }
+  });
+
+  // REST: /api/trunks
+  svr.Get("/api/trunks", [&](const httplib::Request&, httplib::Response& res){
+    try {
+      pqxx::work tx(pg.conn());
+      auto r = tx.exec(
+        "SELECT t.trunk_id, a.account_code, t.name, t.direction, t.auth_mode, t.enabled, t.max_cps, t.max_concurrent "
+        "FROM core.trunks t JOIN core.accounts a ON a.account_id=t.account_id ORDER BY t.trunk_id ASC");
+      nlohmann::json arr = nlohmann::json::array();
+      for (const auto& row : r) {
+        arr.push_back({
+          {"trunk_id", row[0].as<long long>()},
+          {"account_code", row[1].as<std::string>()},
+          {"name", row[2].as<std::string>()},
+          {"direction", row[3].as<std::string>()},
+          {"auth_mode", row[4].as<std::string>()},
+          {"enabled", row[5].as<bool>()},
+          {"max_cps", row[6].as<int>()},
+          {"max_concurrent", row[7].as<int>()}
+        });
+      }
+      res.set_content(arr.dump(), "application/json");
+    } catch (const std::exception& ex) {
+      res.status = 500; res.set_content(nlohmann::json({{"error", ex.what()}}).dump(), "application/json");
+    }
+  });
+
+  // REST: /api/routes/simulate (proxy to gRPC RouteService.Pick)
+  svr.Post("/api/routes/simulate", [&](const httplib::Request& req, httplib::Response& res){
+    g_route_pick_requests.fetch_add(1, std::memory_order_relaxed);
+    try {
+      auto j = nlohmann::json::parse(req.body);
+      hyperswitch::routing::PickRequest preq;
+      if (j.contains("call_id")) preq.set_call_id(j["call_id"].get<std::string>());
+      if (j.contains("from_uri")) preq.set_from_uri(j["from_uri"].get<std::string>());
+      if (j.contains("to_uri")) preq.set_to_uri(j["to_uri"].get<std::string>());
+      if (j.contains("e164_from")) preq.set_e164_from(j["e164_from"].get<std::string>());
+      if (j.contains("e164_to")) preq.set_e164_to(j["e164_to"].get<std::string>());
+      if (j.contains("src_ip")) preq.set_src_ip(j["src_ip"].get<std::string>());
+      if (j.contains("ingress_trunk")) preq.set_ingress_trunk(j["ingress_trunk"].get<std::string>());
+      if (j.contains("codecs")) for (auto& c: j["codecs"]) preq.add_codecs(c.get<std::string>());
+
+      grpc::ClientContext ctx;
+      if (route_timeout_ms > 0) {
+        auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(route_timeout_ms);
+        ctx.set_deadline(deadline);
+      }
+      hyperswitch::routing::PickResponse presp;
+      auto st = route_stub->Pick(&ctx, preq, &presp);
+      if (!st.ok()) {
+        g_route_pick_failures.fetch_add(1, std::memory_order_relaxed);
+        res.status = 502;
+        res.set_content(nlohmann::json({{"error", st.error_message()}}).dump(), "application/json");
+        return;
+      }
+      nlohmann::json out;
+      out["route_plan"] = presp.route_plan();
+      out["policy_version"] = presp.policy_version();
+      out["candidates"] = nlohmann::json::array();
+      for (const auto& c : presp.candidates()) {
+        out["candidates"].push_back({
+          {"vendor", c.vendor()}, {"egress_trunk", c.egress_trunk()}, {"ip", c.ip()}, {"port", c.port()},
+          {"priority", c.priority()}, {"weight", c.weight()}
+        });
+      }
+      res.set_content(out.dump(), "application/json");
+    } catch (const std::exception& ex) {
+      res.status = 400;
+      res.set_content(nlohmann::json({{"error", ex.what()}}).dump(), "application/json");
+    }
+  });
+
+  // REST: /api/rates/import (stub)
+  svr.Post("/api/rates/import", [&](const httplib::Request& req, httplib::Response& res){
+    res.status = 202;
+    res.set_content(nlohmann::json({{"status","accepted"},{"detail","rate import not implemented yet"}}).dump(), "application/json");
+  });
+
+  // legacy internal endpoint kept for compatibility
   svr.Post("/internal/route/pick", [&](const httplib::Request& req, httplib::Response& res){
     g_route_pick_requests.fetch_add(1, std::memory_order_relaxed);
     try {
