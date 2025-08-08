@@ -28,11 +28,19 @@ static void flush_batch(const std::string& ch_http) {
   }
 }
 
+CdrIngestImpl::~CdrIngestImpl() {
+  try {
+    std::lock_guard<std::mutex> lk(g_mu);
+    flush_batch(ch_http_);
+  } catch (...) {}
+}
+
 ::grpc::Status CdrIngestImpl::Push(::grpc::ServerContext* ctx, const CdrEvent* req, Ack* resp) {
   try {
     nlohmann::json row = {
       {"call_id", req->call_id()},
       {"attempt", req->attempt()},
+      {"phase", req->phase()},
       {"start_ts", req->start_ts()},
       {"answer_ts", req->answer_ts()},
       {"end_ts", req->end_ts()},

@@ -1,5 +1,11 @@
 #include <grpcpp/grpcpp.h>
+#include <grpcpp/health_check_service_interface.h>
+#include <grpcpp/ext/proto_server_reflection_plugin.h>
 #include <spdlog/spdlog.h>
+#include <csignal>
+#include <pthread.h>
+#include <thread>
+#include <atomic>
 #include "common/env.hpp"
 #include "common/log.hpp"
 #include "common/pg.hpp"
@@ -13,12 +19,27 @@ int main(int argc, char** argv) {
   hs::Pg pg(pg_uri);
   hs::billing::BillingServiceImpl svc(&pg);
 
+  // Enable default gRPC health service and server reflection
+  grpc::EnableDefaultHealthCheckService(true);
+  grpc::reflection::InitProtoReflectionServerBuilderPlugin();
+
   grpc::ServerBuilder builder;
   builder.AddListeningPort(bind, grpc::InsecureServerCredentials());
   builder.RegisterService(&svc);
 
   auto server = builder.BuildAndStart();
   spdlog::info("billing-svc listening on {}", bind);
+
+  // Graceful shutdown on SIGINT/SIGTERM
+  sigset_t set; sigemptyset(&set); sigaddset(&set, SIGINT); sigaddset(&set, SIGTERM);
+  pthread_sigmask(SIG_BLOCK, &set, nullptr);
+  std::thread shutdown_thread([&server, set]() mutable {
+    int sig = 0; sigwait(&set, &sig);
+    spdlog::info("Received signal {}, shutting down...", sig);
+    server->Shutdown();
+  });
+
   server->Wait();
+  shutdown_thread.join();
   return 0;
 }

@@ -84,6 +84,7 @@ services:
       context: ..
       dockerfile: Dockerfile.service
     environment:
+      SERVICE: route-svc
       PG_URI: postgresql://admin:admin@postgres:5432/hyperswitch
       REDIS_URI: tcp://redis:6379
       BIND: 0.0.0.0:7001
@@ -98,6 +99,7 @@ services:
       context: ..
       dockerfile: Dockerfile.service
     environment:
+      SERVICE: billing-svc
       PG_URI: postgresql://admin:admin@postgres:5432/hyperswitch
       BIND: 0.0.0.0:7003
     ports:
@@ -110,6 +112,7 @@ services:
       context: ..
       dockerfile: Dockerfile.service
     environment:
+      SERVICE: cdr-svc
       CH_HTTP: http://clickhouse:8123/?database=hyperswitch
       BIND: 0.0.0.0:7002
     ports:
@@ -122,6 +125,7 @@ services:
       context: ..
       dockerfile: Dockerfile.service
     environment:
+      SERVICE: admin-api
       BIND: 0.0.0.0:8080
       ROUTE_SVC_ADDR: route-svc:7001
     ports:
@@ -134,6 +138,7 @@ services:
       context: ..
       dockerfile: Dockerfile.service
     environment:
+      SERVICE: auth-svc
       PG_URI: postgresql://admin:admin@postgres:5432/hyperswitch
       REDIS_URI: tcp://redis:6379
       BIND: 0.0.0.0:7004
@@ -148,6 +153,7 @@ services:
       context: ..
       dockerfile: Dockerfile.service
     environment:
+      SERVICE: observe-svc
       REDIS_URI: tcp://redis:6379
       BIND: 0.0.0.0:7005
     ports:
