@@ -1,0 +1,35 @@
+syntax = "proto3";
+package hyperswitch.cdr;
+
+message CdrEvent {
+  string call_id = 1;
+  uint32 attempt = 2;
+  string phase = 3; // start, answer, end
+  string start_ts = 4; // ISO8601
+  string answer_ts = 5; // ISO8601 optional
+  string end_ts = 6; // ISO8601 optional
+  string from_uri = 7;
+  string to_uri = 8;
+  string e164_from = 9;
+  string e164_to = 10;
+  string ingress_trunk = 11;
+  string egress_trunk = 12;
+  uint32 sip_final_code = 13;
+  string sip_final_reason = 14;
+  string route_plan = 15;
+  string vendor = 16;
+  string codec_in = 17;
+  string codec_out = 18;
+  bool transcoded = 19;
+  uint32 pdd_ms = 20;
+  double acd_seconds = 21;
+  uint64 bytes_tx = 22;
+  uint64 bytes_rx = 23;
+  string node = 24;
+}
+
+message Ack { bool ok = 1; }
+
+service CdrIngest {
+  rpc Push (CdrEvent) returns (Ack);
+}

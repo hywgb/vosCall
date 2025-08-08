@@ -1,0 +1,17 @@
+syntax = "proto3";
+package hyperswitch.observe;
+
+message RtcpStat {
+  string call_id = 1;
+  string leg = 2; // a or b
+  double loss = 3; // fraction 0..1
+  double jitter_ms = 4;
+  double rtt_ms = 5;
+  string ts = 6; // ISO8601
+}
+
+message Ack { bool ok = 1; }
+
+service ObserveIngest {
+  rpc PushRtcp (RtcpStat) returns (Ack);
+}

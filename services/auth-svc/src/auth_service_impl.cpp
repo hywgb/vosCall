@@ -1,0 +1,48 @@
+#include "auth_service_impl.hpp"
+#include <spdlog/spdlog.h>
+
+using hyperswitch::auth::SipAuthRequest;
+using hyperswitch::auth::SipAuthResponse;
+using hyperswitch::auth::RiskEvalRequest;
+using hyperswitch::auth::RiskEvalResponse;
+
+namespace hs::auth {
+
+AuthServiceImpl::AuthServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg), redis_(redis) {}
+
+::grpc::Status AuthServiceImpl::SipAuth(::grpc::ServerContext*, const SipAuthRequest* req, SipAuthResponse* resp) {
+  try {
+    pqxx::work tx(pg_->conn());
+    auto r = tx.exec_params("SELECT a.account_code, t.name FROM core.trunks t JOIN core.accounts a ON a.account_id=t.account_id WHERE t.auth_mode='ip' AND (t.auth_data->>'ip')=$1 AND t.enabled=true LIMIT 1", req->src_ip());
+    if (r.empty()) { resp->set_allowed(false); resp->set_reason("ip not allowed"); return ::grpc::Status::OK; }
+    resp->set_allowed(true);
+    resp->set_account_code(r[0][0].as<std::string>());
+    resp->set_trunk_name(r[0][1].as<std::string>());
+    return ::grpc::Status::OK;
+  } catch (const std::exception& ex) {
+    spdlog::error("SipAuth error: {}", ex.what());
+    return {::grpc::StatusCode::INTERNAL, ex.what()};
+  }
+}
+
+::grpc::Status AuthServiceImpl::RiskEval(::grpc::ServerContext*, const RiskEvalRequest* req, RiskEvalResponse* resp) {
+  try {
+    auto& r = redis_->get();
+    std::string key = "quota:cps:" + req->account_code();
+    auto now = std::chrono::system_clock::now();
+    auto sec = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+    // 滑窗计数：当前秒+前一秒
+    r.incr(key + ":" + std::to_string(sec));
+    r.expire(key + ":" + std::to_string(sec), std::chrono::seconds(10));
+    // 简单阈值（后续改为读取 PG 限额或 Redis 配置）
+    int cps = req->cps();
+    if (cps > 1000) { resp->set_allowed(false); resp->set_reason("cps too high"); return ::grpc::Status::OK; }
+    resp->set_allowed(true);
+    return ::grpc::Status::OK;
+  } catch (const std::exception& ex) {
+    spdlog::error("RiskEval error: {}", ex.what());
+    return {::grpc::StatusCode::INTERNAL, ex.what()};
+  }
+}
+
+}

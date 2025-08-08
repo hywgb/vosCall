@@ -1,0 +1,39 @@
+syntax = "proto3";
+package hyperswitch.routing;
+
+option go_package = "hyperswitch/routing";
+
+message HeaderKV { string key = 1; string value = 2; }
+
+message PickRequest {
+  string call_id = 1;
+  string from_uri = 2;
+  string to_uri = 3;
+  string e164_from = 4;
+  string e164_to = 5;
+  string src_ip = 6;
+  string ingress_trunk = 7;
+  repeated string codecs = 8;        // offer codecs
+  repeated HeaderKV headers = 9;
+}
+
+message Candidate {
+  string vendor = 1;
+  string egress_trunk = 2;
+  string ip = 3;
+  uint32 port = 4;
+  uint32 priority = 5;
+  uint32 weight = 6;
+  uint32 max_cps = 7;
+  uint32 max_concurrent = 8;
+}
+
+message PickResponse {
+  repeated Candidate candidates = 1;  // ordered list for serial fallback, use N>1 for parallel fork
+  string route_plan = 2;
+  string policy_version = 3;
+}
+
+service RouteService {
+  rpc Pick (PickRequest) returns (PickResponse);
+}

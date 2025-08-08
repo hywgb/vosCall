@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+FROM mcr.microsoft.com/vscode/devcontainers/cpp:ubuntu-24.04 AS build
+
+ARG VCPKG_ROOT=/opt/vcpkg
+ENV VCPKG_ROOT=${VCPKG_ROOT}
+
+RUN apt-get update && apt-get install -y git cmake pkg-config && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . .
+RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
+
+FROM ubuntu:24.04
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=build /src/build/services/route-svc/route-svc /usr/local/bin/route-svc
+COPY --from=build /src/build/services/cdr-svc/cdr-svc /usr/local/bin/cdr-svc
+COPY --from=build /src/build/services/billing-svc/billing-svc /usr/local/bin/billing-svc
+
+ENV BIND=0.0.0.0:7001
+ENV SERVICE=route-svc
+ENTRYPOINT ["/bin/sh", "-c", "exec ${SERVICE}"]

@@ -1,0 +1,33 @@
+openapi: 3.0.3
+info:
+  title: HyperSwitch Admin API
+  version: 1.0.0
+servers:
+  - url: /api
+paths:
+  /accounts:
+    get:
+      summary: List accounts
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create account
+      responses:
+        '201':
+          description: Created
+  /trunks:
+    get:
+      summary: List trunks
+      responses:
+        '200': { description: OK }
+  /rates/import:
+    post:
+      summary: Import vendor/customer rate table
+      responses:
+        '202': { description: Accepted }
+  /routes/simulate:
+    post:
+      summary: Simulate routing decision for a dialed number
+      responses:
+        '200': { description: OK }

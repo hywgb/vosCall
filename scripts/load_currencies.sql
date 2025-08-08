@@ -1,0 +1,1 @@
+\copy billing.currencies(code,name) FROM 'scripts/iso4217_currencies.csv' WITH (FORMAT csv, HEADER true);

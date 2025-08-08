@@ -1,0 +1,162 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: hs_postgres
+    environment:
+      POSTGRES_DB: hyperswitch
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d hyperswitch"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: hs_redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.1
+    container_name: hs_zk
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.1
+    container_name: hs_kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.7
+    container_name: hs_clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ch_data:/var/lib/clickhouse
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: hs_prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:10.4.5
+    container_name: hs_grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  # services (optional to run in compose)
+  route-svc:
+    build:
+      context: ..
+      dockerfile: Dockerfile.service
+    environment:
+      PG_URI: postgresql://admin:admin@postgres:5432/hyperswitch
+      REDIS_URI: tcp://redis:6379
+      BIND: 0.0.0.0:7001
+    ports:
+      - "7001:7001"
+    depends_on:
+      - postgres
+      - redis
+
+  billing-svc:
+    build:
+      context: ..
+      dockerfile: Dockerfile.service
+    environment:
+      PG_URI: postgresql://admin:admin@postgres:5432/hyperswitch
+      BIND: 0.0.0.0:7003
+    ports:
+      - "7003:7003"
+    depends_on:
+      - postgres
+
+  cdr-svc:
+    build:
+      context: ..
+      dockerfile: Dockerfile.service
+    environment:
+      CH_HTTP: http://clickhouse:8123/?database=hyperswitch
+      BIND: 0.0.0.0:7002
+    ports:
+      - "7002:7002"
+    depends_on:
+      - clickhouse
+
+  admin-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile.service
+    environment:
+      BIND: 0.0.0.0:8080
+      ROUTE_SVC_ADDR: route-svc:7001
+    ports:
+      - "8080:8080"
+    depends_on:
+      - route-svc
+
+  auth-svc:
+    build:
+      context: ..
+      dockerfile: Dockerfile.service
+    environment:
+      PG_URI: postgresql://admin:admin@postgres:5432/hyperswitch
+      REDIS_URI: tcp://redis:6379
+      BIND: 0.0.0.0:7004
+    ports:
+      - "7004:7004"
+    depends_on:
+      - postgres
+      - redis
+
+  observe-svc:
+    build:
+      context: ..
+      dockerfile: Dockerfile.service
+    environment:
+      REDIS_URI: tcp://redis:6379
+      BIND: 0.0.0.0:7005
+    ports:
+      - "7005:7005"
+    depends_on:
+      - redis
+
+volumes:
+  pg_data: {}
+  redis_data: {}
+  ch_data: {}
+  grafana_data: {}
