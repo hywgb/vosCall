@@ -15,9 +15,7 @@ RouteServiceImpl::RouteServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg)
     pqxx::work txn(pg_->conn());
 
     // 1) 解析入口中继 -> 账号 -> 路由计划（选取最近创建作为默认）
-    auto r1 = txn.prepared("route_get_plan").exists() ?
-              txn.prepared("route_get_plan")(req->ingress_trunk())() :
-              txn.exec_params(
+    auto r1 = txn.exec_params(
                 "SELECT rp.plan_id, rp.name FROM core.trunks t "
                 "JOIN core.accounts a ON a.account_id=t.account_id "
                 "JOIN routing.route_plans rp ON rp.account_id=a.account_id "
