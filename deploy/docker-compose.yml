@@ -78,6 +78,17 @@ services:
     depends_on:
       - prometheus
 
+  jobs-svc:
+    build:
+      context: ..
+      dockerfile: Dockerfile.service
+    environment:
+      SERVICE: jobs-svc
+      PG_URI: postgresql://admin:admin@postgres:5432/hyperswitch
+      JOB_INTERVAL_MS: 2000
+    depends_on:
+      - postgres
+
   # services (optional to run in compose)
   route-svc:
     build:

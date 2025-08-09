@@ -43,6 +43,49 @@ int main() {
     res.set_content(body, "text/plain; version=0.0.4");
   });
 
+  // Jobs: list & get
+  svr.Get("/api/jobs", [&](const httplib::Request& req, httplib::Response& res){
+    try {
+      pqxx::work tx(pg.conn());
+      auto r = tx.exec("SELECT job_id, job_type, status, created_at, updated_at, started_at, finished_at FROM ops.jobs ORDER BY job_id DESC LIMIT 100");
+      nlohmann::json arr = nlohmann::json::array();
+      for (const auto& row : r) {
+        nlohmann::json j;
+        j["job_id"] = row[0].as<long long>();
+        j["job_type"] = row[1].as<std::string>();
+        j["status"] = row[2].as<std::string>();
+        j["created_at"] = row[3].as<std::string>();
+        j["updated_at"] = row[4].as<std::string>();
+        if (!row[5].is_null()) j["started_at"] = row[5].as<std::string>();
+        if (!row[6].is_null()) j["finished_at"] = row[6].as<std::string>();
+        arr.push_back(std::move(j));
+      }
+      res.set_content(arr.dump(), "application/json");
+    } catch (const std::exception& ex) {
+      res.status = 500; res.set_content(nlohmann::json({{"error", ex.what()}}).dump(), "application/json");
+    }
+  });
+  svr.Get(R"(/api/jobs/(\d+))", [&](const httplib::Request& req, httplib::Response& res){
+    try {
+      auto id = req.matches[1].str();
+      pqxx::work tx(pg.conn());
+      auto r = tx.exec_params("SELECT job_id, job_type, status, created_at, updated_at, started_at, finished_at, error FROM ops.jobs WHERE job_id=$1", id);
+      if (r.empty()) { res.status = 404; res.set_content("not found","text/plain"); return; }
+      nlohmann::json j;
+      j["job_id"] = r[0][0].as<long long>();
+      j["job_type"] = r[0][1].as<std::string>();
+      j["status"] = r[0][2].as<std::string>();
+      j["created_at"] = r[0][3].as<std::string>();
+      j["updated_at"] = r[0][4].as<std::string>();
+      if (!r[0][5].is_null()) j["started_at"] = r[0][5].as<std::string>();
+      if (!r[0][6].is_null()) j["finished_at"] = r[0][6].as<std::string>();
+      if (!r[0][7].is_null()) j["error"] = r[0][7].as<std::string>();
+      res.set_content(j.dump(), "application/json");
+    } catch (const std::exception& ex) {
+      res.status = 500; res.set_content(nlohmann::json({{"error", ex.what()}}).dump(), "application/json");
+    }
+  });
+
   // REST: /api/accounts (GET)
   svr.Get("/api/accounts", [&](const httplib::Request& req, httplib::Response& res){
     try {

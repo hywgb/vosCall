@@ -20,6 +20,7 @@ COPY --from=build /src/build/services/cdr-svc/cdr-svc /usr/local/bin/cdr-svc
 COPY --from=build /src/build/services/billing-svc/billing-svc /usr/local/bin/billing-svc
 COPY --from=build /src/build/services/auth-svc/auth-svc /usr/local/bin/auth-svc
 COPY --from=build /src/build/services/observe-svc/observe-svc /usr/local/bin/observe-svc
+COPY --from=build /src/build/services/jobs-svc/jobs-svc /usr/local/bin/jobs-svc
 COPY --from=build /src/build/apps/admin-api/admin-api /usr/local/bin/admin-api
 
 ENV BIND=0.0.0.0:7001

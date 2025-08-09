@@ -78,6 +78,15 @@ RouteServiceImpl::RouteServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg)
       c->set_port(row[6].as<int>());
       c->set_priority(row[1].as<int>());
       c->set_weight(scaled_weight);
+      // optional capacity hints: read from table plan_entries
+      try {
+        auto caps = txn.exec_params("SELECT max_cps, max_concurrent FROM routing.plan_entries pe JOIN routing.prefixes p ON p.prefix_id=pe.prefix_id WHERE pe.plan_id=$1 AND $2 LIKE p.prefix || '%' ORDER BY length(p.prefix) DESC LIMIT 1", plan_id, to);
+        if (!caps.empty()) {
+          if (!caps[0][0].is_null()) c->set_max_cps(caps[0][0].as<int>());
+          if (!caps[0][1].is_null()) c->set_max_concurrent(caps[0][1].as<int>());
+        }
+      } catch (...) {}
+
     }
     resp->set_route_plan(plan_name);
     resp->set_policy_version("v1");
