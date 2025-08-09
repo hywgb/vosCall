@@ -9,24 +9,18 @@
 #include "common/env.hpp"
 #include "common/log.hpp"
 #include "common/pg.hpp"
+#include "common/auth.hpp"
 #include <hyperswitch/routing/route.grpc.pb.h>
 
 static std::atomic<uint64_t> g_route_pick_requests{0};
 static std::atomic<uint64_t> g_route_pick_failures{0};
-
-static bool check_admin(const httplib::Request& req, const std::string& token){
-  if (token.empty()) return true; // disabled
-  auto it = req.headers.find("x-admin-token");
-  if (it == req.headers.end()) return false;
-  return it->second == token;
-}
 
 int main() {
   hs::init_logging(hs::get_env("LOG_LEVEL", "info"));
   std::string bind = hs::get_env("BIND", "0.0.0.0:8080");
   std::string route_addr = hs::get_env("ROUTE_SVC_ADDR", "localhost:7001");
   std::string pg_uri = hs::get_env("PG_URI", "postgresql://admin:admin@localhost:5432/hyperswitch");
-  std::string admin_token = hs::get_env("ADMIN_TOKEN", "");
+  hs::AdminAuthConfig auth_cfg{ .adminToken = hs::get_env("ADMIN_TOKEN", "") };
   int route_timeout_ms =  hs::get_env("ROUTE_TIMEOUT_MS", "800").empty() ? 800 : std::stoi(hs::get_env("ROUTE_TIMEOUT_MS", "800"));
 
   hs::Pg pg(pg_uri);
@@ -76,7 +70,8 @@ int main() {
 
   // REST: /api/accounts (POST)
   svr.Post("/api/accounts", [&](const httplib::Request& req, httplib::Response& res){
-    if (!check_admin(req, admin_token)) { res.status = 401; res.set_content("unauthorized","text/plain"); return; }
+    std::unordered_map<std::string,std::string> h; for (auto& kv : req.headers) h.emplace(kv.first, kv.second);
+    if (!hs::is_admin_authorized(h, auth_cfg)) { res.status = 401; res.set_content("unauthorized","text/plain"); return; }
     try {
       auto j = nlohmann::json::parse(req.body);
       std::string account_code = j.at("account_code");
@@ -88,6 +83,10 @@ int main() {
       pqxx::work tx(pg.conn());
       tx.exec_params("INSERT INTO core.accounts(account_code,name,type,currency,prepaid,credit_limit) VALUES($1,$2,$3,$4,$5,$6)",
                      account_code, name, type, currency, prepaid, credit_limit);
+      // audit
+      tx.exec_params("SELECT ops.write_audit(NULL,$1,'create','account',$2,$3)",
+                     nlohmann::json({{"ip", req.remote_addr}}).dump(), account_code,
+                     nlohmann::json({{"name",name},{"type",type},{"currency",currency},{"prepaid",prepaid},{"credit_limit",credit_limit}}).dump());
       tx.commit();
       res.status = 201; res.set_content(nlohmann::json({{"ok",true}}).dump(), "application/json");
     } catch (const std::exception& ex) {
@@ -123,7 +122,8 @@ int main() {
 
   // REST: /api/trunks (POST)
   svr.Post("/api/trunks", [&](const httplib::Request& req, httplib::Response& res){
-    if (!check_admin(req, admin_token)) { res.status = 401; res.set_content("unauthorized","text/plain"); return; }
+    std::unordered_map<std::string,std::string> h; for (auto& kv : req.headers) h.emplace(kv.first, kv.second);
+    if (!hs::is_admin_authorized(h, auth_cfg)) { res.status = 401; res.set_content("unauthorized","text/plain"); return; }
     try {
       auto j = nlohmann::json::parse(req.body);
       std::string account_code = j.at("account_code");
@@ -139,6 +139,10 @@ int main() {
       long long account_id = acc[0][0].as<long long>();
       tx.exec_params("INSERT INTO core.trunks(account_id,name,direction,auth_mode,auth_data,max_cps,max_concurrent) VALUES($1,$2,$3,$4,$5,$6,$7)",
                      account_id, name, direction, auth_mode, auth_data.dump(), max_cps, max_concurrent);
+      // audit
+      tx.exec_params("SELECT ops.write_audit(NULL,$1,'create','trunk',$2,$3)",
+                     nlohmann::json({{"ip", req.remote_addr}}).dump(), name,
+                     nlohmann::json({{"account_code",account_code},{"direction",direction},{"auth_mode",auth_mode},{"max_cps",max_cps},{"max_concurrent",max_concurrent}}).dump());
       tx.commit();
       res.status = 201; res.set_content(nlohmann::json({{"ok",true}}).dump(), "application/json");
     } catch (const std::exception& ex) {
@@ -191,11 +195,26 @@ int main() {
     }
   });
 
-  // REST: /api/rates/import (stub)
+  // REST: /api/rates/import (async job submit)
   svr.Post("/api/rates/import", [&](const httplib::Request& req, httplib::Response& res){
-    if (!check_admin(req, admin_token)) { res.status = 401; res.set_content("unauthorized","text/plain"); return; }
-    res.status = 202;
-    res.set_content(nlohmann::json({{"status","accepted"},{"detail","rate import not implemented yet"}}).dump(), "application/json");
+    std::unordered_map<std::string,std::string> h; for (auto& kv : req.headers) h.emplace(kv.first, kv.second);
+    if (!hs::is_admin_authorized(h, auth_cfg)) { res.status = 401; res.set_content("unauthorized","text/plain"); return; }
+    try {
+      // 接受完整 CSV 内容（body），存入 ops.jobs 以异步处理
+      nlohmann::json meta;
+      if (auto it = req.headers.find("content-type"); it != req.headers.end()) meta["content_type"] = it->second;
+      pqxx::work tx(pg.conn());
+      auto r = tx.exec_params("INSERT INTO ops.jobs(job_type, status, payload, payload_text) VALUES('rate_import','pending',$1,$2) RETURNING job_id",
+                              meta.dump(), req.body);
+      long long job_id = r[0][0].as<long long>();
+      // 审计
+      tx.exec_params("SELECT ops.write_audit(NULL,$1,'submit','job', $2, $3)",
+                     nlohmann::json({{"ip", req.remote_addr}}).dump(), std::to_string(job_id), meta.dump());
+      tx.commit();
+      res.status = 202; res.set_content(nlohmann::json({{"job_id", job_id}}).dump(), "application/json");
+    } catch (const std::exception& ex) {
+      res.status = 400; res.set_content(nlohmann::json({{"error", ex.what()}}).dump(), "application/json");
+    }
   });
 
   // legacy internal endpoint kept for compatibility
