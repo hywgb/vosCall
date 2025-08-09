@@ -2,9 +2,14 @@
 #include <thread>
 #include <chrono>
 #include <pqxx/pqxx>
+#include <atomic>
+#include <httplib.h>
 #include "common/env.hpp"
 #include "common/log.hpp"
 #include "common/pg.hpp"
+
+static std::atomic<uint64_t> g_jobs_processed{0};
+static std::atomic<uint64_t> g_jobs_failed{0};
 
 struct RateRow {
   std::string account_code; std::string prefix; double price_per_min; int step; int min_time; double conn_fee; std::string currency; std::string table_name;
@@ -52,9 +57,20 @@ int main(int argc, char** argv) {
   hs::init_logging(hs::get_env("LOG_LEVEL", "info"));
   std::string pg_uri = hs::get_env("PG_URI", "postgresql://admin:admin@localhost:5432/hyperswitch");
   int interval_ms = std::stoi(hs::get_env("JOB_INTERVAL_MS", "2000"));
+  int metrics_port = std::stoi(hs::get_env("METRICS_PORT", "9101"));
 
   hs::Pg pg(pg_uri);
   spdlog::info("jobs-svc started");
+
+  // metrics server
+  httplib::Server metrics;
+  metrics.Get("/metrics", [&](const httplib::Request&, httplib::Response& res){
+    std::string body;
+    body += "jobs_processed_total " + std::to_string(g_jobs_processed.load()) + "\n";
+    body += "jobs_failed_total " + std::to_string(g_jobs_failed.load()) + "\n";
+    res.set_content(body, "text/plain; version=0.0.4");
+  });
+  std::thread metrics_thread([&]{ metrics.listen("0.0.0.0", metrics_port); });
 
   while (true) {
     try {
@@ -72,14 +88,18 @@ int main(int argc, char** argv) {
         }
         tx.exec_params("UPDATE ops.jobs SET status='done', finished_at=now() WHERE job_id=$1", job_id);
         tx.commit();
+        g_jobs_processed.fetch_add(1, std::memory_order_relaxed);
         spdlog::info("job {} done", job_id);
       } else {
         tx.commit();
       }
     } catch (const std::exception& ex) {
+      g_jobs_failed.fetch_add(1, std::memory_order_relaxed);
       spdlog::error("jobs loop error: {}", ex.what());
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
   }
+  metrics.stop();
+  metrics_thread.join();
   return 0;
 }

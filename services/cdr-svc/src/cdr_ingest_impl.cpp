@@ -14,9 +14,7 @@ static std::mutex g_mu;
 static std::deque<std::string> g_queue; // JSONEachRow lines
 static const size_t FLUSH_THRESHOLD = 200;
 
-CdrIngestImpl::CdrIngestImpl(const std::string& ch_http_endpoint) : ch_http_(ch_http_endpoint) {}
-
-static void flush_batch(const std::string& ch_http) {
+static void flush_batch_unlocked(const std::string& ch_http) {
   if (g_queue.empty()) return;
   std::string body;
   body.reserve(g_queue.size() * 256);
@@ -28,10 +26,24 @@ static void flush_batch(const std::string& ch_http) {
   }
 }
 
+CdrIngestImpl::CdrIngestImpl(const std::string& ch_http_endpoint) : ch_http_(ch_http_endpoint) {
+  flush_thread_ = std::thread([this]{
+    while (!stop_.load(std::memory_order_relaxed)) {
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      try {
+        std::lock_guard<std::mutex> lk(g_mu);
+        flush_batch_unlocked(ch_http_);
+      } catch (...) {}
+    }
+  });
+}
+
 CdrIngestImpl::~CdrIngestImpl() {
   try {
+    stop_.store(true, std::memory_order_relaxed);
+    if (flush_thread_.joinable()) flush_thread_.join();
     std::lock_guard<std::mutex> lk(g_mu);
-    flush_batch(ch_http_);
+    flush_batch_unlocked(ch_http_);
   } catch (...) {}
 }
 
@@ -64,9 +76,8 @@ CdrIngestImpl::~CdrIngestImpl() {
       {"bytes_rx", req->bytes_rx()},
       {"node", req->node()}
     };
-    // billsec 计算（若有）
     if (!req->answer_ts().empty() && !req->end_ts().empty()) {
-      row["billsec"] = 0; // 交给 CH 凭表达式计算或 ETL 后续处理（可保留 0）
+      row["billsec"] = 0;
     }
 
     std::string line = row.dump();
@@ -74,8 +85,7 @@ CdrIngestImpl::~CdrIngestImpl() {
       std::lock_guard<std::mutex> lk(g_mu);
       g_queue.push_back(line);
       if (g_queue.size() >= FLUSH_THRESHOLD) {
-        // flush synchronously for now
-        flush_batch(ch_http_);
+        flush_batch_unlocked(ch_http_);
       }
     }
     resp->set_ok(true);
