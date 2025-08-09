@@ -8,13 +8,20 @@ RUN apt-get update && apt-get install -y git cmake pkg-config && rm -rf /var/lib
 
 WORKDIR /src
 COPY . .
-RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
+# Prefer existing vcpkg in the image if available
+RUN if [ ! -d "$VCPKG_ROOT" ] && [ -d "/usr/local/vcpkg" ]; then export VCPKG_ROOT=/usr/local/vcpkg; fi \
+    && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release $( [ -d "$VCPKG_ROOT" ] && echo -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake ) \
+    && cmake --build build -j
 
 FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/build/services/route-svc/route-svc /usr/local/bin/route-svc
 COPY --from=build /src/build/services/cdr-svc/cdr-svc /usr/local/bin/cdr-svc
 COPY --from=build /src/build/services/billing-svc/billing-svc /usr/local/bin/billing-svc
+COPY --from=build /src/build/services/auth-svc/auth-svc /usr/local/bin/auth-svc
+COPY --from=build /src/build/services/observe-svc/observe-svc /usr/local/bin/observe-svc
+COPY --from=build /src/build/services/jobs-svc/jobs-svc /usr/local/bin/jobs-svc
+COPY --from=build /src/build/apps/admin-api/admin-api /usr/local/bin/admin-api
 
 ENV BIND=0.0.0.0:7001
 ENV SERVICE=route-svc
