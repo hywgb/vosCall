@@ -75,4 +75,29 @@ void RedisClient::expire(const std::string& key, std::chrono::seconds ttl) {
   freeReplyObject(reply);
 }
 
+std::optional<std::string> RedisClient::get(const std::string& key) {
+  redisReply* reply = (redisReply*)redisCommand(ctx_, "GET %s", key.c_str());
+  if (!reply) return std::nullopt;
+  std::optional<std::string> out;
+  if (reply->type == REDIS_REPLY_STRING && reply->str) {
+    out = std::string(reply->str, reply->len);
+  }
+  freeReplyObject(reply);
+  return out;
+}
+
+long long RedisClient::incr(const std::string& key) {
+  redisReply* reply = (redisReply*)redisCommand(ctx_, "INCR %s", key.c_str());
+  if (!reply) throw std::runtime_error("redis INCR failed");
+  if (reply->type == REDIS_REPLY_ERROR) {
+    std::string err = reply->str ? reply->str : "unknown";
+    freeReplyObject(reply);
+    throw std::runtime_error("redis INCR error: " + err);
+  }
+  long long v = 0;
+  if (reply->type == REDIS_REPLY_INTEGER) v = reply->integer;
+  freeReplyObject(reply);
+  return v;
+}
+
 }

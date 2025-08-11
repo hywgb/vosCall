@@ -4,12 +4,15 @@
 #include <pqxx/pqxx>
 #include <atomic>
 #include <httplib.h>
+#include <csignal>
+#include <pthread.h>
 #include "common/env.hpp"
 #include "common/log.hpp"
 #include "common/pg.hpp"
 
 static std::atomic<uint64_t> g_jobs_processed{0};
 static std::atomic<uint64_t> g_jobs_failed{0};
+static std::atomic<bool> g_stop{false};
 
 struct RateRow {
   std::string account_code; std::string prefix; double price_per_min; int step; int min_time; double conn_fee; std::string currency; std::string table_name;
@@ -72,7 +75,17 @@ int main(int argc, char** argv) {
   });
   std::thread metrics_thread([&]{ metrics.listen("0.0.0.0", metrics_port); });
 
-  while (true) {
+  // graceful shutdown (SIGINT/SIGTERM)
+  sigset_t set; sigemptyset(&set); sigaddset(&set, SIGINT); sigaddset(&set, SIGTERM);
+  pthread_sigmask(SIG_BLOCK, &set, nullptr);
+  std::thread shutdown_thread([&]{
+    int sig = 0; sigwait(&set, &sig);
+    spdlog::info("Received signal {}, stopping jobs loop...", sig);
+    g_stop.store(true, std::memory_order_relaxed);
+    metrics.stop();
+  });
+
+  while (!g_stop.load(std::memory_order_relaxed)) {
     try {
       pqxx::work tx(pg.conn());
       auto r = tx.exec("SELECT job_id, job_type, payload_text FROM ops.jobs WHERE status='pending' ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED");
@@ -99,7 +112,7 @@ int main(int argc, char** argv) {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
   }
-  metrics.stop();
-  metrics_thread.join();
+  if (metrics_thread.joinable()) metrics_thread.join();
+  if (shutdown_thread.joinable()) shutdown_thread.join();
   return 0;
 }

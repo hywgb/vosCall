@@ -27,19 +27,16 @@ AuthServiceImpl::AuthServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg), 
 
 ::grpc::Status AuthServiceImpl::RiskEval(::grpc::ServerContext*, const RiskEvalRequest* req, RiskEvalResponse* resp) {
   try {
-    // simple per-second counter using HGET/HSET (approximation)
+    // sliding window per-second counter
     std::string key_prefix = "quota:cps:" + req->account_code();
     auto now = std::chrono::system_clock::now();
     auto sec = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
     std::string sec_key = key_prefix + ":" + std::to_string(sec);
 
-    int count = 0;
-    if (auto v = redis_->hget(sec_key, "count")) {
-      try { count = std::stoi(*v); } catch (...) { count = 0; }
+    long long count = redis_->incr(sec_key);
+    if (count == 1) {
+      redis_->expire(sec_key, std::chrono::seconds(10));
     }
-    count += 1;
-    redis_->hset(sec_key, "count", std::to_string(count));
-    redis_->expire(sec_key, std::chrono::seconds(10));
 
     // naive threshold check (future: read from DB/config)
     if (count > 1000) { resp->set_allowed(false); resp->set_reason("cps too high"); return ::grpc::Status::OK; }
