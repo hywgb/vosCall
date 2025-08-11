@@ -8,7 +8,8 @@ using hyperswitch::auth::RiskEvalResponse;
 
 namespace hs::auth {
 
-AuthServiceImpl::AuthServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg), redis_(redis) {}
+AuthServiceImpl::AuthServiceImpl(hs::Pg* pg, hs::RedisClient* redis, int cpsLimit)
+  : pg_(pg), redis_(redis), cps_limit_(cpsLimit) {}
 
 ::grpc::Status AuthServiceImpl::SipAuth(::grpc::ServerContext*, const SipAuthRequest* req, SipAuthResponse* resp) {
   try {
@@ -38,8 +39,7 @@ AuthServiceImpl::AuthServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg), 
       redis_->expire(sec_key, std::chrono::seconds(10));
     }
 
-    // naive threshold check (future: read from DB/config)
-    if (count > 1000) { resp->set_allowed(false); resp->set_reason("cps too high"); return ::grpc::Status::OK; }
+    if (count > cps_limit_) { resp->set_allowed(false); resp->set_reason("cps too high"); return ::grpc::Status::OK; }
     resp->set_allowed(true);
     return ::grpc::Status::OK;
   } catch (const std::exception& ex) {

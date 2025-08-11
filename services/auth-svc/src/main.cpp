@@ -17,6 +17,7 @@ int main(int argc, char** argv) {
   std::string pg_uri = hs::get_env("PG_URI", "postgresql://admin:admin@localhost:5432/hyperswitch");
   std::string redis_uri = hs::get_env("REDIS_URI", "tcp://localhost:6379");
   std::string bind = hs::get_env("BIND", "0.0.0.0:7004");
+  int cps_limit = std::stoi(hs::get_env("CPS_LIMIT", "1000"));
 
   hs::Pg pg(pg_uri);
   hs::RedisClient redis(redis_uri);
@@ -25,13 +26,13 @@ int main(int argc, char** argv) {
   grpc::EnableDefaultHealthCheckService(true);
   grpc::reflection::InitProtoReflectionServerBuilderPlugin();
 
-  hs::auth::AuthServiceImpl svc(&pg, &redis);
+  hs::auth::AuthServiceImpl svc(&pg, &redis, cps_limit);
 
   grpc::ServerBuilder builder;
   builder.AddListeningPort(bind, grpc::InsecureServerCredentials());
   builder.RegisterService(&svc);
   auto server = builder.BuildAndStart();
-  spdlog::info("auth-svc listening on {}", bind);
+  spdlog::info("auth-svc listening on {} with CPS_LIMIT={}", bind, cps_limit);
 
   // Graceful shutdown on SIGINT/SIGTERM
   sigset_t set; sigemptyset(&set); sigaddset(&set, SIGINT); sigaddset(&set, SIGTERM);
