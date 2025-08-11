@@ -27,16 +27,22 @@ AuthServiceImpl::AuthServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg), 
 
 ::grpc::Status AuthServiceImpl::RiskEval(::grpc::ServerContext*, const RiskEvalRequest* req, RiskEvalResponse* resp) {
   try {
-    // use hiredis wrapper methods via redis_
-    std::string key = "quota:cps:" + req->account_code();
+    // simple per-second counter using HGET/HSET (approximation)
+    std::string key_prefix = "quota:cps:" + req->account_code();
     auto now = std::chrono::system_clock::now();
     auto sec = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
-    // 滑窗计数：当前秒+前一秒
-    r.incr(key + ":" + std::to_string(sec));
-    r.expire(key + ":" + std::to_string(sec), std::chrono::seconds(10));
-    // 简单阈值（后续改为读取 PG 限额或 Redis 配置）
-    int cps = req->cps();
-    if (cps > 1000) { resp->set_allowed(false); resp->set_reason("cps too high"); return ::grpc::Status::OK; }
+    std::string sec_key = key_prefix + ":" + std::to_string(sec);
+
+    int count = 0;
+    if (auto v = redis_->hget(sec_key, "count")) {
+      try { count = std::stoi(*v); } catch (...) { count = 0; }
+    }
+    count += 1;
+    redis_->hset(sec_key, "count", std::to_string(count));
+    redis_->expire(sec_key, std::chrono::seconds(10));
+
+    // naive threshold check (future: read from DB/config)
+    if (count > 1000) { resp->set_allowed(false); resp->set_reason("cps too high"); return ::grpc::Status::OK; }
     resp->set_allowed(true);
     return ::grpc::Status::OK;
   } catch (const std::exception& ex) {

@@ -27,8 +27,6 @@ if(NOT httplib_FOUND)
   endif()
 endif()
 
-find_package(fmt CONFIG REQUIRED)
-
 # Resolve protobuf target
 if(TARGET protobuf::libprotobuf)
   set(_PROTOBUF_LIB protobuf::libprotobuf)
@@ -48,10 +46,16 @@ else()
   message(FATAL_ERROR "No gRPC++ target found")
 endif()
 
+if(TARGET gRPC::grpc++_reflection)
+  set(_GRPC_REFLECTION gRPC::grpc++_reflection)
+elseif(TARGET grpc++_reflection)
+  set(_GRPC_REFLECTION grpc++_reflection)
+endif()
+
 if(TARGET httplib::httplib)
-  target_link_libraries(cdr-svc PRIVATE hs_common hyperswitch_protos ${_GRPCPP_LIB} ${_PROTOBUF_LIB} fmt::fmt httplib::httplib)
+  target_link_libraries(cdr-svc PRIVATE hs_common hyperswitch_protos ${_GRPCPP_LIB} ${_PROTOBUF_LIB} ${_GRPC_REFLECTION} httplib::httplib)
 elseif(DEFINED HTTPLIB_LIBS)
-  target_link_libraries(cdr-svc PRIVATE hs_common hyperswitch_protos ${_GRPCPP_LIB} ${_PROTOBUF_LIB} fmt::fmt ${HTTPLIB_LIBS})
+  target_link_libraries(cdr-svc PRIVATE hs_common hyperswitch_protos ${_GRPCPP_LIB} ${_PROTOBUF_LIB} ${_GRPC_REFLECTION} ${HTTPLIB_LIBS})
 else()
   message(FATAL_ERROR "cpp-httplib not found; install libcpp-httplib-dev or vcpkg cpp-httplib")
 endif()

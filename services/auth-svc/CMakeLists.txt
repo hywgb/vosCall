@@ -36,4 +36,10 @@ else()
   message(FATAL_ERROR "No gRPC++ target found")
 endif()
 
-target_link_libraries(auth-svc PRIVATE hs_common hyperswitch_protos ${_GRPCPP_LIB} ${_PROTOBUF_LIB})
+if(TARGET gRPC::grpc++_reflection)
+  set(_GRPC_REFLECTION gRPC::grpc++_reflection)
+elseif(TARGET grpc++_reflection)
+  set(_GRPC_REFLECTION grpc++_reflection)
+endif()
+
+target_link_libraries(auth-svc PRIVATE hs_common hyperswitch_protos ${_GRPCPP_LIB} ${_PROTOBUF_LIB} ${_GRPC_REFLECTION})

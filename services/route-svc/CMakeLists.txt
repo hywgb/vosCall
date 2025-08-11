@@ -16,7 +16,6 @@ find_package(Protobuf QUIET CONFIG)
 if(NOT Protobuf_FOUND)
   find_package(Protobuf REQUIRED)
 endif()
-find_package(fmt CONFIG REQUIRED)
 
 # Resolve protobuf target
 if(TARGET protobuf::libprotobuf)
@@ -44,4 +43,4 @@ elseif(TARGET grpc++_reflection)
   set(_GRPC_REFLECTION grpc++_reflection)
 endif()
 
-target_link_libraries(route-svc PRIVATE hs_common hyperswitch_protos ${_GRPCPP_LIB} ${_PROTOBUF_LIB} fmt::fmt ${_GRPC_REFLECTION})
+target_link_libraries(route-svc PRIVATE hs_common hyperswitch_protos ${_GRPCPP_LIB} ${_PROTOBUF_LIB} ${_GRPC_REFLECTION})

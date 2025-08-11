@@ -28,8 +28,6 @@ if(NOT httplib_FOUND)
   endif()
 endif()
 
-find_package(fmt CONFIG REQUIRED)
-
 # Resolve protobuf target
 if(TARGET protobuf::libprotobuf)
   set(_PROTOBUF_LIB protobuf::libprotobuf)
@@ -50,9 +48,9 @@ else()
 endif()
 
 if(TARGET httplib::httplib)
-  target_link_libraries(admin-api PRIVATE hyperswitch_protos hs_common ${_GRPCPP_LIB} ${_PROTOBUF_LIB} nlohmann_json::nlohmann_json fmt::fmt httplib::httplib)
+  target_link_libraries(admin-api PRIVATE hyperswitch_protos hs_common ${_GRPCPP_LIB} ${_PROTOBUF_LIB} nlohmann_json::nlohmann_json httplib::httplib)
 elseif(DEFINED HTTPLIB_LIBS)
-  target_link_libraries(admin-api PRIVATE hyperswitch_protos hs_common ${_GRPCPP_LIB} ${_PROTOBUF_LIB} nlohmann_json::nlohmann_json fmt::fmt ${HTTPLIB_LIBS})
+  target_link_libraries(admin-api PRIVATE hyperswitch_protos hs_common ${_GRPCPP_LIB} ${_PROTOBUF_LIB} nlohmann_json::nlohmann_json ${HTTPLIB_LIBS})
 else()
   message(FATAL_ERROR "cpp-httplib not found; install libcpp-httplib-dev or vcpkg cpp-httplib")
 endif()

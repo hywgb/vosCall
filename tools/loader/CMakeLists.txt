@@ -28,4 +28,5 @@ else()
   endif()
 endif()
 
-target_link_libraries(loader PRIVATE spdlog::spdlog fmt::fmt ${PQXX_TARGET})
+# Link with hs_common to reuse Pg and logging
+target_link_libraries(loader PRIVATE hs_common spdlog::spdlog fmt::fmt ${PQXX_TARGET})

@@ -9,10 +9,6 @@ add_library(hs_common
 
 target_include_directories(hs_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-# Use std::format with spdlog to avoid fmt compile-time issues
-target_compile_definitions(hs_common PUBLIC SPDLOG_USE_STD_FORMAT)
-
-find_package(spdlog CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 
 # Try vcpkg's unofficial-libpqxx first, then system pqxx
@@ -51,6 +47,6 @@ else()
 endif()
 
 # Link
-# spdlog and fmt use CONFIG; hiredis via pkg-config or module
-# No redis++ dependency required
-target_link_libraries(hs_common PUBLIC spdlog::spdlog fmt::fmt ${PQXX_TARGET} ${HIREDIS_LIB})
+# spdlog: header-only; fmt used elsewhere
+# hiredis via pkg-config or module; pqxx resolved above
+target_link_libraries(hs_common PUBLIC fmt::fmt ${PQXX_TARGET} ${HIREDIS_LIB})
