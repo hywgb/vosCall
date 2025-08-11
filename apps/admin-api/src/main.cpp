@@ -31,7 +31,31 @@ int main() {
 
   httplib::Server svr;
   svr.Get("/healthz", [](const httplib::Request&, httplib::Response& res){ res.set_content("ok", "text/plain"); });
-  svr.Get("/readyz", [](const httplib::Request&, httplib::Response& res){ res.set_content("ok", "text/plain"); });
+  svr.Get("/readyz", [&](const httplib::Request&, httplib::Response& res){
+    nlohmann::json j;
+    bool ok = true;
+    // PG check
+    try {
+      pqxx::work tx(pg.conn());
+      (void)tx.exec(pqxx::zview("SELECT 1"));
+      tx.commit();
+      j["pg"] = "ok";
+    } catch (const std::exception& ex) {
+      ok = false; j["pg"] = ex.what();
+    }
+    // gRPC route-svc readiness via Pick probe with tight deadline
+    try {
+      grpc::ClientContext ctx;
+      ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::milliseconds(200));
+      hyperswitch::routing::PickRequest preq; // empty request is allowed; service should handle
+      hyperswitch::routing::PickResponse presp;
+      auto st = route_stub->Pick(&ctx, preq, &presp);
+      if (!st.ok()) { ok = false; j["route_svc"] = st.error_message(); } else { j["route_svc"] = "ok"; }
+    } catch (const std::exception& ex) { ok = false; j["route_svc"] = ex.what(); }
+
+    res.status = ok ? 200 : 503;
+    res.set_content(j.dump(), "application/json");
+  });
   svr.Get("/metrics", [](const httplib::Request&, httplib::Response& res){
     std::string body;
     body.reserve(256);
