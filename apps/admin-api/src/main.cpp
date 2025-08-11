@@ -11,6 +11,7 @@
 #include "common/pg.hpp"
 #include "common/auth.hpp"
 #include <route.grpc.pb.h>
+#include <pqxx/zview.hxx>
 
 static std::atomic<uint64_t> g_route_pick_requests{0};
 static std::atomic<uint64_t> g_route_pick_failures{0};
@@ -47,7 +48,7 @@ int main() {
   svr.Get("/api/jobs", [&](const httplib::Request& req, httplib::Response& res){
     try {
       pqxx::work tx(pg.conn());
-      auto r = tx.exec("SELECT job_id, job_type, status, created_at, updated_at, started_at, finished_at FROM ops.jobs ORDER BY job_id DESC LIMIT 100");
+      auto r = tx.exec(pqxx::zview("SELECT job_id, job_type, status, created_at, updated_at, started_at, finished_at FROM ops.jobs ORDER BY job_id DESC LIMIT 100"));
       nlohmann::json arr = nlohmann::json::array();
       for (const auto& row : r) {
         nlohmann::json j;
@@ -69,7 +70,7 @@ int main() {
     try {
       auto id = req.matches[1].str();
       pqxx::work tx(pg.conn());
-      auto r = tx.exec_params("SELECT job_id, job_type, status, created_at, updated_at, started_at, finished_at, error FROM ops.jobs WHERE job_id=$1", id);
+      auto r = tx.exec(pqxx::zview("SELECT job_id, job_type, status, created_at, updated_at, started_at, finished_at, error FROM ops.jobs WHERE job_id=$1"), pqxx::params{id});
       if (r.empty()) { res.status = 404; res.set_content("not found","text/plain"); return; }
       nlohmann::json j;
       j["job_id"] = r[0][0].as<long long>();
@@ -90,7 +91,7 @@ int main() {
   svr.Get("/api/accounts", [&](const httplib::Request& req, httplib::Response& res){
     try {
       pqxx::work tx(pg.conn());
-      auto r = tx.exec("SELECT account_id, account_code, name, type, currency, prepaid, balance, credit_limit, status FROM core.accounts ORDER BY account_id ASC");
+      auto r = tx.exec(pqxx::zview("SELECT account_id, account_code, name, type, currency, prepaid, balance, credit_limit, status FROM core.accounts ORDER BY account_id ASC"));
       nlohmann::json arr = nlohmann::json::array();
       for (const auto& row : r) {
         arr.push_back({
@@ -124,12 +125,12 @@ int main() {
       bool prepaid = j.value("prepaid", true);
       double credit_limit = j.value("credit_limit", 0.0);
       pqxx::work tx(pg.conn());
-      tx.exec_params("INSERT INTO core.accounts(account_code,name,type,currency,prepaid,credit_limit) VALUES($1,$2,$3,$4,$5,$6)",
-                     account_code, name, type, currency, prepaid, credit_limit);
+      tx.exec(pqxx::zview("INSERT INTO core.accounts(account_code,name,type,currency,prepaid,credit_limit) VALUES($1,$2,$3,$4,$5,$6)"),
+                     pqxx::params{account_code, name, type, currency, prepaid, credit_limit});
       // audit
-      tx.exec_params("SELECT ops.write_audit(NULL,$1,'create','account',$2,$3)",
-                     nlohmann::json({{"ip", req.remote_addr}}).dump(), account_code,
-                     nlohmann::json({{"name",name},{"type",type},{"currency",currency},{"prepaid",prepaid},{"credit_limit",credit_limit}}).dump());
+      tx.exec(pqxx::zview("SELECT ops.write_audit(NULL,$1,'create','account',$2,$3)"),
+                     pqxx::params{nlohmann::json({{"ip", req.remote_addr}}).dump(), account_code,
+                     nlohmann::json({{"name",name},{"type",type},{"currency",currency},{"prepaid",prepaid},{"credit_limit",credit_limit}}).dump()});
       tx.commit();
       res.status = 201; res.set_content(nlohmann::json({{"ok",true}}).dump(), "application/json");
     } catch (const std::exception& ex) {
@@ -141,9 +142,9 @@ int main() {
   svr.Get("/api/trunks", [&](const httplib::Request& req, httplib::Response& res){
     try {
       pqxx::work tx(pg.conn());
-      auto r = tx.exec(
+      auto r = tx.exec(pqxx::zview(
         "SELECT t.trunk_id, a.account_code, t.name, t.direction, t.auth_mode, t.enabled, t.max_cps, t.max_concurrent "
-        "FROM core.trunks t JOIN core.accounts a ON a.account_id=t.account_id ORDER BY t.trunk_id ASC");
+        "FROM core.trunks t JOIN core.accounts a ON a.account_id=t.account_id ORDER BY t.trunk_id ASC"));
       nlohmann::json arr = nlohmann::json::array();
       for (const auto& row : r) {
         arr.push_back({
@@ -177,15 +178,15 @@ int main() {
       int max_cps = j.value("max_cps", 0);
       int max_concurrent = j.value("max_concurrent", 0);
       pqxx::work tx(pg.conn());
-      auto acc = tx.exec_params("SELECT account_id FROM core.accounts WHERE account_code=$1", account_code);
+      auto acc = tx.exec(pqxx::zview("SELECT account_id FROM core.accounts WHERE account_code=$1"), pqxx::params{account_code});
       if (acc.empty()) throw std::runtime_error("account not found");
       long long account_id = acc[0][0].as<long long>();
-      tx.exec_params("INSERT INTO core.trunks(account_id,name,direction,auth_mode,auth_data,max_cps,max_concurrent) VALUES($1,$2,$3,$4,$5,$6,$7)",
-                     account_id, name, direction, auth_mode, auth_data.dump(), max_cps, max_concurrent);
+      tx.exec(pqxx::zview("INSERT INTO core.trunks(account_id,name,direction,auth_mode,auth_data,max_cps,max_concurrent) VALUES($1,$2,$3,$4,$5,$6,$7)"),
+                     pqxx::params{account_id, name, direction, auth_mode, auth_data.dump(), max_cps, max_concurrent});
       // audit
-      tx.exec_params("SELECT ops.write_audit(NULL,$1,'create','trunk',$2,$3)",
-                     nlohmann::json({{"ip", req.remote_addr}}).dump(), name,
-                     nlohmann::json({{"account_code",account_code},{"direction",direction},{"auth_mode",auth_mode},{"max_cps",max_cps},{"max_concurrent",max_concurrent}}).dump());
+      tx.exec(pqxx::zview("SELECT ops.write_audit(NULL,$1,'create','trunk',$2,$3)"),
+                     pqxx::params{nlohmann::json({{"ip", req.remote_addr}}).dump(), name,
+                     nlohmann::json({{"account_code",account_code},{"direction",direction},{"auth_mode",auth_mode},{"max_cps",max_cps},{"max_concurrent",max_concurrent}}).dump()});
       tx.commit();
       res.status = 201; res.set_content(nlohmann::json({{"ok",true}}).dump(), "application/json");
     } catch (const std::exception& ex) {
@@ -247,12 +248,12 @@ int main() {
       nlohmann::json meta;
       if (auto it = req.headers.find("content-type"); it != req.headers.end()) meta["content_type"] = it->second;
       pqxx::work tx(pg.conn());
-      auto r = tx.exec_params("INSERT INTO ops.jobs(job_type, status, payload, payload_text) VALUES('rate_import','pending',$1,$2) RETURNING job_id",
-                              meta.dump(), req.body);
+      auto r = tx.exec(pqxx::zview("INSERT INTO ops.jobs(job_type, status, payload, payload_text) VALUES('rate_import','pending',$1,$2) RETURNING job_id"),
+                              pqxx::params{meta.dump(), req.body});
       long long job_id = r[0][0].as<long long>();
       // 审计
-      tx.exec_params("SELECT ops.write_audit(NULL,$1,'submit','job', $2, $3)",
-                     nlohmann::json({{"ip", req.remote_addr}}).dump(), std::to_string(job_id), meta.dump());
+      tx.exec(pqxx::zview("SELECT ops.write_audit(NULL,$1,'submit','job', $2, $3)"),
+                     pqxx::params{nlohmann::json({{"ip", req.remote_addr}}).dump(), std::to_string(job_id), meta.dump()});
       tx.commit();
       res.status = 202; res.set_content(nlohmann::json({{"job_id", job_id}}).dump(), "application/json");
     } catch (const std::exception& ex) {

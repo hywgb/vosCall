@@ -2,6 +2,7 @@
 #include <thread>
 #include <chrono>
 #include <pqxx/pqxx>
+#include <pqxx/zview.hxx>
 #include <atomic>
 #include <httplib.h>
 #include <csignal>
@@ -35,24 +36,24 @@ static std::vector<RateRow> parse_csv(const std::string& csv) {
 static void process_rate_import(pqxx::work& tx, long long job_id, const std::string& csv) {
   auto rows = parse_csv(csv);
   for (const auto& r : rows) {
-    auto acc = tx.exec_params("SELECT account_id FROM core.accounts WHERE account_code=$1", r.account_code);
+    auto acc = tx.exec(pqxx::zview("SELECT account_id FROM core.accounts WHERE account_code=$1"), pqxx::params{r.account_code});
     if (acc.empty()) throw std::runtime_error("account not found: "+r.account_code);
     long long account_id = acc[0][0].as<long long>();
-    auto rt = tx.exec_params("INSERT INTO billing.rate_tables(account_id,name,currency,effective_from) VALUES($1,$2,$3,now()) ON CONFLICT DO NOTHING RETURNING rate_table_id",
-                             account_id, r.table_name, r.currency);
+    auto rt = tx.exec(pqxx::zview("INSERT INTO billing.rate_tables(account_id,name,currency,effective_from) VALUES($1,$2,$3,now()) ON CONFLICT DO NOTHING RETURNING rate_table_id"),
+                             pqxx::params{account_id, r.table_name, r.currency});
     long long rate_table_id;
     if (rt.empty()) {
-      auto q = tx.exec_params("SELECT rate_table_id FROM billing.rate_tables WHERE account_id=$1 AND name=$2 ORDER BY effective_from DESC LIMIT 1",
-                              account_id, r.table_name);
+      auto q = tx.exec(pqxx::zview("SELECT rate_table_id FROM billing.rate_tables WHERE account_id=$1 AND name=$2 ORDER BY effective_from DESC LIMIT 1"),
+                              pqxx::params{account_id, r.table_name});
       rate_table_id = q[0][0].as<long long>();
     } else {
       rate_table_id = rt[0][0].as<long long>();
     }
-    auto p = tx.exec_params("SELECT prefix_id FROM routing.prefixes WHERE prefix=$1 LIMIT 1", r.prefix);
+    auto p = tx.exec(pqxx::zview("SELECT prefix_id FROM routing.prefixes WHERE prefix=$1 LIMIT 1"), pqxx::params{r.prefix});
     if (p.empty()) throw std::runtime_error("prefix not found: "+r.prefix);
     long long prefix_id = p[0][0].as<long long>();
-    tx.exec_params("INSERT INTO billing.rate_items(rate_table_id,prefix_id,price_per_min,billing_step_sec,min_time_sec,connection_fee) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",
-                   rate_table_id, prefix_id, r.price_per_min, r.step, r.min_time, r.conn_fee);
+    tx.exec(pqxx::zview("INSERT INTO billing.rate_items(rate_table_id,prefix_id,price_per_min,billing_step_sec,min_time_sec,connection_fee) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING"),
+                   pqxx::params{rate_table_id, prefix_id, r.price_per_min, r.step, r.min_time, r.conn_fee});
   }
 }
 
@@ -88,18 +89,18 @@ int main(int argc, char** argv) {
   while (!g_stop.load(std::memory_order_relaxed)) {
     try {
       pqxx::work tx(pg.conn());
-      auto r = tx.exec("SELECT job_id, job_type, payload_text FROM ops.jobs WHERE status='pending' ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED");
+      auto r = tx.exec(pqxx::zview("SELECT job_id, job_type, payload_text FROM ops.jobs WHERE status='pending' ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED"));
       if (!r.empty()) {
         long long job_id = r[0][0].as<long long>();
         std::string type = r[0][1].as<std::string>();
         std::string text = r[0][2].is_null() ? std::string() : r[0][2].as<std::string>();
-        tx.exec_params("UPDATE ops.jobs SET status='running', started_at=now() WHERE job_id=$1", job_id);
+        tx.exec(pqxx::zview("UPDATE ops.jobs SET status='running', started_at=now() WHERE job_id=$1"), pqxx::params{job_id});
         if (type == "rate_import") {
           process_rate_import(tx, job_id, text);
         } else {
           throw std::runtime_error("unknown job type: "+type);
         }
-        tx.exec_params("UPDATE ops.jobs SET status='done', finished_at=now() WHERE job_id=$1", job_id);
+        tx.exec(pqxx::zview("UPDATE ops.jobs SET status='done', finished_at=now() WHERE job_id=$1"), pqxx::params{job_id});
         tx.commit();
         g_jobs_processed.fetch_add(1, std::memory_order_relaxed);
         spdlog::info("job {} done", job_id);
