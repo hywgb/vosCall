@@ -86,6 +86,9 @@ services:
       SERVICE: jobs-svc
       PG_URI: postgresql://admin:admin@postgres:5432/hyperswitch
       JOB_INTERVAL_MS: 2000
+      METRICS_PORT: 9101
+    ports:
+      - "9101:9101"
     depends_on:
       - postgres
 
@@ -99,8 +102,10 @@ services:
       PG_URI: postgresql://admin:admin@postgres:5432/hyperswitch
       REDIS_URI: tcp://redis:6379
       BIND: 0.0.0.0:7001
+      METRICS_PORT: 9102
     ports:
       - "7001:7001"
+      - "9102:9102"
     depends_on:
       - postgres
       - redis
@@ -113,8 +118,10 @@ services:
       SERVICE: billing-svc
       PG_URI: postgresql://admin:admin@postgres:5432/hyperswitch
       BIND: 0.0.0.0:7003
+      METRICS_PORT: 9103
     ports:
       - "7003:7003"
+      - "9103:9103"
     depends_on:
       - postgres
 
@@ -126,8 +133,10 @@ services:
       SERVICE: cdr-svc
       CH_HTTP: http://clickhouse:8123/?database=hyperswitch
       BIND: 0.0.0.0:7002
+      METRICS_PORT: 9106
     ports:
       - "7002:7002"
+      - "9106:9106"
     depends_on:
       - clickhouse
 
@@ -155,8 +164,10 @@ services:
       PG_URI: postgresql://admin:admin@postgres:5432/hyperswitch
       REDIS_URI: tcp://redis:6379
       BIND: 0.0.0.0:7004
+      METRICS_PORT: 9104
     ports:
       - "7004:7004"
+      - "9104:9104"
     depends_on:
       - postgres
       - redis
@@ -169,8 +180,10 @@ services:
       SERVICE: observe-svc
       REDIS_URI: tcp://redis:6379
       BIND: 0.0.0.0:7005
+      METRICS_PORT: 9105
     ports:
       - "7005:7005"
+      - "9105:9105"
     depends_on:
       - redis
 

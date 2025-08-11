@@ -68,6 +68,12 @@ int main(int argc, char** argv) {
 
   // metrics server
   httplib::Server metrics;
+  metrics.Get("/healthz", [](const httplib::Request&, httplib::Response& res){ res.set_content("ok", "text/plain"); });
+  metrics.Get("/readyz", [&](const httplib::Request&, httplib::Response& res){
+    bool ok = true;
+    try { pqxx::work tx(pg.conn()); (void)tx.exec(pqxx::zview("SELECT 1")); tx.commit(); } catch (...) { ok = false; }
+    res.status = ok ? 200 : 503; res.set_content(ok?"ok":"not_ready","text/plain");
+  });
   metrics.Get("/metrics", [&](const httplib::Request&, httplib::Response& res){
     std::string body;
     body += "jobs_processed_total " + std::to_string(g_jobs_processed.load()) + "\n";
