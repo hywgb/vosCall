@@ -87,6 +87,18 @@ RouteServiceImpl::RouteServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg)
       } catch (...) {}
 
     }
+
+    // 记录 call_id -> (trunk,vendor) 供 observe-svc 聚合
+    if (!req->call_id().empty() && resp->candidates_size() > 0) {
+      const auto& first = resp->candidates(0);
+      try {
+        std::string map_key = std::string("quality:callmap:") + req->call_id();
+        redis_->hset(map_key, "trunk", first.egress_trunk());
+        redis_->hset(map_key, "vendor", first.vendor());
+        redis_->expire(map_key, std::chrono::seconds(600));
+      } catch (...) {}
+    }
+
     resp->set_route_plan(plan_name);
     resp->set_policy_version("v1");
     txn.commit();
