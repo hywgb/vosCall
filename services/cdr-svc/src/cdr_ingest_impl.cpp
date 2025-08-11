@@ -4,6 +4,8 @@
 #include <spdlog/spdlog.h>
 #include <mutex>
 #include <deque>
+extern std::atomic<uint64_t> g_cdr_ingest_total;
+extern std::atomic<uint64_t> g_cdr_errors;
 
 using hyperswitch::cdr::CdrEvent;
 using hyperswitch::cdr::Ack;
@@ -42,6 +44,7 @@ static void flush_batch_unlocked(const std::string& ch_http) {
     int code = res ? res->status : 0;
     std::string text = res ? res->body : "no response";
     spdlog::error("ClickHouse batch error {}: {}", code, text);
+    g_cdr_errors.fetch_add(1, std::memory_order_relaxed);
   }
 }
 
@@ -107,10 +110,12 @@ CdrIngestImpl::~CdrIngestImpl() {
         flush_batch_unlocked(ch_http_);
       }
     }
+    g_cdr_ingest_total.fetch_add(1, std::memory_order_relaxed);
     resp->set_ok(true);
     return ::grpc::Status::OK;
   } catch (const std::exception& ex) {
     spdlog::error("CDR ingest error: {}", ex.what());
+    g_cdr_errors.fetch_add(1, std::memory_order_relaxed);
     return ::grpc::Status(::grpc::StatusCode::INTERNAL, ex.what());
   }
 }

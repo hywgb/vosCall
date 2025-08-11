@@ -1,6 +1,9 @@
 #include "auth_service_impl.hpp"
 #include <spdlog/spdlog.h>
 #include <pqxx/zview.hxx>
+extern std::atomic<uint64_t> g_auth_requests;
+extern std::atomic<uint64_t> g_risk_requests;
+extern std::atomic<uint64_t> g_auth_errors;
 
 using hyperswitch::auth::SipAuthRequest;
 using hyperswitch::auth::SipAuthResponse;
@@ -14,6 +17,7 @@ AuthServiceImpl::AuthServiceImpl(hs::Pg* pg, hs::RedisClient* redis, int cpsLimi
 
 ::grpc::Status AuthServiceImpl::SipAuth(::grpc::ServerContext*, const SipAuthRequest* req, SipAuthResponse* resp) {
   try {
+    g_auth_requests.fetch_add(1, std::memory_order_relaxed);
     pqxx::work tx(pg_->conn());
     auto r = tx.exec(pqxx::zview("SELECT a.account_code, t.name FROM core.trunks t JOIN core.accounts a ON a.account_id=t.account_id WHERE t.auth_mode='ip' AND (t.auth_data->>'ip')=$1 AND t.enabled=true LIMIT 1"), pqxx::params{req->src_ip()});
     if (r.empty()) { resp->set_allowed(false); resp->set_reason("ip not allowed"); return ::grpc::Status::OK; }
@@ -23,12 +27,14 @@ AuthServiceImpl::AuthServiceImpl(hs::Pg* pg, hs::RedisClient* redis, int cpsLimi
     return ::grpc::Status::OK;
   } catch (const std::exception& ex) {
     spdlog::error("SipAuth error: {}", ex.what());
+    g_auth_errors.fetch_add(1, std::memory_order_relaxed);
     return {::grpc::StatusCode::INTERNAL, ex.what()};
   }
 }
 
 ::grpc::Status AuthServiceImpl::RiskEval(::grpc::ServerContext*, const RiskEvalRequest* req, RiskEvalResponse* resp) {
   try {
+    g_risk_requests.fetch_add(1, std::memory_order_relaxed);
     // sliding window per-second counter
     std::string key_prefix = "quota:cps:" + req->account_code();
     auto now = std::chrono::system_clock::now();
@@ -45,6 +51,7 @@ AuthServiceImpl::AuthServiceImpl(hs::Pg* pg, hs::RedisClient* redis, int cpsLimi
     return ::grpc::Status::OK;
   } catch (const std::exception& ex) {
     spdlog::error("RiskEval error: {}", ex.what());
+    g_auth_errors.fetch_add(1, std::memory_order_relaxed);
     return {::grpc::StatusCode::INTERNAL, ex.what()};
   }
 }

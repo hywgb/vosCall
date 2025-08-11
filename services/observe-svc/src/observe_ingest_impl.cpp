@@ -9,6 +9,7 @@ ObserveIngestImpl::ObserveIngestImpl(hs::RedisClient* redis) : redis_(redis) {}
 
 ::grpc::Status ObserveIngestImpl::PushRtcp(::grpc::ServerContext*, const hyperswitch::observe::RtcpStat* stat, hyperswitch::observe::Ack* ack) {
   try {
+    g_rtcp_ingest_total.fetch_add(1, std::memory_order_relaxed);
     auto& r = *redis_;
     // key: quality:call:<call_id>:<leg>, store latest and keep short TTL
     std::string call_key = std::string("quality:call:") + stat->call_id() + ":" + stat->leg();
@@ -36,6 +37,7 @@ ObserveIngestImpl::ObserveIngestImpl(hs::RedisClient* redis) : redis_(redis) {}
     return ::grpc::Status::OK;
   } catch (const std::exception& ex) {
     spdlog::error("PushRtcp error: {}", ex.what());
+    g_observe_errors.fetch_add(1, std::memory_order_relaxed);
     return {::grpc::StatusCode::INTERNAL, ex.what()};
   }
 }

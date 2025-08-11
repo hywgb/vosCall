@@ -1,6 +1,10 @@
 #pragma once
 #include <observe.grpc.pb.h>
+#include <atomic>
 #include "common/redis.hpp"
+
+extern std::atomic<uint64_t> g_rtcp_ingest_total;
+extern std::atomic<uint64_t> g_observe_errors;
 
 namespace hs::observe {
 

@@ -13,6 +13,7 @@ RouteServiceImpl::RouteServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg)
 
 ::grpc::Status RouteServiceImpl::Pick(::grpc::ServerContext* ctx, const PickRequest* req, PickResponse* resp) {
   try {
+    g_route_picks.fetch_add(1, std::memory_order_relaxed);
     pqxx::work txn(pg_->conn());
 
     auto r1 = txn.exec(pqxx::zview(
@@ -23,6 +24,7 @@ RouteServiceImpl::RouteServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg)
 
     if (r1.empty()) {
       spdlog::warn("No route plan for trunk {}", req->ingress_trunk());
+      g_route_pick_errors.fetch_add(1, std::memory_order_relaxed);
       return ::grpc::Status(::grpc::StatusCode::NOT_FOUND, "route plan not found");
     }
     auto account_id = r1[0][0].as<long long>();
@@ -38,6 +40,7 @@ RouteServiceImpl::RouteServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg)
       "WHERE (b.account_id IS NULL OR b.account_id=$1) AND $2 LIKE p.prefix || '%' AND (b.expire_at IS NULL OR b.expire_at>now()) \n"
       "ORDER BY length(p.prefix) DESC LIMIT 1"), pqxx::params{account_id, to});
     if (!bl.empty()) {
+      g_route_pick_errors.fetch_add(1, std::memory_order_relaxed);
       return ::grpc::Status(::grpc::StatusCode::PERMISSION_DENIED, "destination blacklisted");
     }
 
@@ -56,6 +59,7 @@ RouteServiceImpl::RouteServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg)
       pqxx::params{plan_id, to});
 
     if (r2.empty()) {
+      g_route_pick_errors.fetch_add(1, std::memory_order_relaxed);
       return ::grpc::Status(::grpc::StatusCode::NOT_FOUND, "no route candidates");
     }
 
@@ -105,6 +109,7 @@ RouteServiceImpl::RouteServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg)
     return ::grpc::Status::OK;
   } catch (const std::exception& ex) {
     spdlog::error("Route Pick error: {}", ex.what());
+    g_route_pick_errors.fetch_add(1, std::memory_order_relaxed);
     return ::grpc::Status(::grpc::StatusCode::INTERNAL, ex.what());
   }
 }

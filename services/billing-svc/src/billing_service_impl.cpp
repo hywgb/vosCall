@@ -3,6 +3,10 @@
 #include <pqxx/pqxx>
 #include <pqxx/zview.hxx>
 #include <random>
+extern std::atomic<uint64_t> g_billing_rate_requests;
+extern std::atomic<uint64_t> g_billing_authorize_requests;
+extern std::atomic<uint64_t> g_billing_settle_requests;
+extern std::atomic<uint64_t> g_billing_errors;
 
 using hyperswitch::billing::AuthorizeRequest;
 using hyperswitch::billing::AuthorizeResponse;
@@ -24,6 +28,7 @@ BillingServiceImpl::BillingServiceImpl(hs::Pg* pg) : pg_(pg) {}
 
 ::grpc::Status BillingServiceImpl::Authorize(::grpc::ServerContext*, const AuthorizeRequest* req, AuthorizeResponse* resp){
   try {
+    g_billing_authorize_requests.fetch_add(1, std::memory_order_relaxed);
     pqxx::work tx(pg_->conn());
     auto r = tx.exec(pqxx::zview("SELECT account_id, prepaid, balance, credit_limit, currency FROM core.accounts WHERE account_code=$1"), pqxx::params{req->account_code()});
     if (r.empty()) return {::grpc::StatusCode::NOT_FOUND, "account not found"};
@@ -47,12 +52,14 @@ BillingServiceImpl::BillingServiceImpl(hs::Pg* pg) : pg_(pg) {}
     return ::grpc::Status::OK;
   } catch (const std::exception& ex) {
     spdlog::error("Authorize error: {}", ex.what());
+    g_billing_errors.fetch_add(1, std::memory_order_relaxed);
     return {::grpc::StatusCode::INTERNAL, ex.what()};
   }
 }
 
 ::grpc::Status BillingServiceImpl::Rate(::grpc::ServerContext*, const RateRequest* req, RateResponse* resp){
   try {
+    g_billing_rate_requests.fetch_add(1, std::memory_order_relaxed);
     pqxx::work tx(pg_->conn());
     auto rt = tx.exec(pqxx::zview("SELECT rt.rate_table_id, rt.currency FROM billing.rate_tables rt \n"
                              "JOIN core.accounts a ON a.account_id=rt.account_id \n"
@@ -87,12 +94,14 @@ BillingServiceImpl::BillingServiceImpl(hs::Pg* pg) : pg_(pg) {}
     return ::grpc::Status::OK;
   } catch (const std::exception& ex) {
     spdlog::error("Rate error: {}", ex.what());
+    g_billing_errors.fetch_add(1, std::memory_order_relaxed);
     return {::grpc::StatusCode::INTERNAL, ex.what()};
   }
 }
 
 ::grpc::Status BillingServiceImpl::Settle(::grpc::ServerContext*, const SettleRequest* req, SettleResponse* resp){
   try {
+    g_billing_settle_requests.fetch_add(1, std::memory_order_relaxed);
     pqxx::work tx(pg_->conn());
     // 重新计价
     auto rt = tx.exec(pqxx::zview("SELECT rt.rate_table_id, a.account_id, a.prepaid FROM billing.rate_tables rt \n"
@@ -138,6 +147,7 @@ BillingServiceImpl::BillingServiceImpl(hs::Pg* pg) : pg_(pg) {}
     return ::grpc::Status::OK;
   } catch (const std::exception& ex) {
     spdlog::error("Settle error: {}", ex.what());
+    g_billing_errors.fetch_add(1, std::memory_order_relaxed);
     return {::grpc::StatusCode::INTERNAL, ex.what()};
   }
 }
