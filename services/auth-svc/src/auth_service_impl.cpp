@@ -27,7 +27,7 @@ AuthServiceImpl::AuthServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg), 
 
 ::grpc::Status AuthServiceImpl::RiskEval(::grpc::ServerContext*, const RiskEvalRequest* req, RiskEvalResponse* resp) {
   try {
-    auto& r = redis_->get();
+    // use hiredis wrapper methods via redis_
     std::string key = "quota:cps:" + req->account_code();
     auto now = std::chrono::system_clock::now();
     auto sec = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();

@@ -1,5 +1,5 @@
 #pragma once
-#include <hyperswitch/cdr/cdr.grpc.pb.h>
+#include <cdr.grpc.pb.h>
 #include <string>
 #include <thread>
 #include <atomic>

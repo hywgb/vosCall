@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
 
   if (mode == "currencies") {
     auto rows = read_csv(file);
-    pqxx::stream_to st = pqxx::stream_to::table(tx, "billing.currencies", {"code","name"});
+    pqxx::stream_to st = pqxx::stream_to::table(tx, {"billing","currencies"}, {"code","name"});
     for (auto& r : rows) {
       if (r.size() < 2) continue;
       st << std::make_tuple(r[0], r[1]);

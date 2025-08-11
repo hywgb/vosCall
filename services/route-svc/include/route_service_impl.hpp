@@ -1,5 +1,5 @@
 #pragma once
-#include <hyperswitch/routing/route.grpc.pb.h>
+#include <route.grpc.pb.h>
 #include <memory>
 #include <unordered_map>
 #include <pqxx/pqxx>

@@ -1,5 +1,5 @@
 #pragma once
-#include <hyperswitch/auth/auth.grpc.pb.h>
+#include <auth.grpc.pb.h>
 #include "common/pg.hpp"
 #include "common/redis.hpp"
 

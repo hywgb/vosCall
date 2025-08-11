@@ -7,6 +7,5 @@ add_executable(jobs-svc
 target_include_directories(jobs-svc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 find_package(spdlog CONFIG REQUIRED)
-find_package(Protobuf CONFIG REQUIRED)
 
 target_link_libraries(jobs-svc PRIVATE hs_common spdlog::spdlog)

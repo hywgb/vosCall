@@ -1,5 +1,5 @@
 #pragma once
-#include <hyperswitch/observe/observe.grpc.pb.h>
+#include <observe.grpc.pb.h>
 #include "common/redis.hpp"
 
 namespace hs::observe {

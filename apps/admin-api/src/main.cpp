@@ -10,7 +10,7 @@
 #include "common/log.hpp"
 #include "common/pg.hpp"
 #include "common/auth.hpp"
-#include <hyperswitch/routing/route.grpc.pb.h>
+#include <route.grpc.pb.h>
 
 static std::atomic<uint64_t> g_route_pick_requests{0};
 static std::atomic<uint64_t> g_route_pick_failures{0};

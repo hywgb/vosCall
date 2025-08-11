@@ -23,6 +23,7 @@ int main(int argc, char** argv) {
 
   // Enable default gRPC health service and server reflection
   grpc::EnableDefaultHealthCheckService(true);
+  // grpc reflections requires linking grpc++_reflection; call stays but linking must be added in CMake
   grpc::reflection::InitProtoReflectionServerBuilderPlugin();
 
   hs::routing::RouteServiceImpl service(&pg, &redis);

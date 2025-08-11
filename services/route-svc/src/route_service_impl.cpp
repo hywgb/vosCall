@@ -59,13 +59,11 @@ RouteServiceImpl::RouteServiceImpl(hs::Pg* pg, hs::RedisClient* redis) : pg_(pg)
     }
 
     // 质量衰减：从 Redis 查询 vendor/trunk penalty，乘到 weight
-    auto& red = redis_->get();
-
     for (const auto& row : r2) {
       double penalty = 1.0;
       try {
         auto key = std::string("quality:trunk:") + row[4].c_str();
-        auto v = red.hget(key, "penalty");
+        auto v = redis_->hget(key, "penalty");
         if (v) penalty = std::stod(*v);
       } catch (...) {}
       int base_weight = row[2].as<int>();

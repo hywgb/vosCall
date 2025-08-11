@@ -25,17 +25,51 @@ set(PROTO_FILES
 set(GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${GENERATED_DIR})
 
+# Resolve protoc and grpc_cpp_plugin executables
+find_program(PROTOC_EXECUTABLE NAMES protoc)
+if(NOT PROTOC_EXECUTABLE)
+  message(FATAL_ERROR "protoc not found; please install protobuf-compiler or ensure it is on PATH")
+endif()
+find_program(GRPC_CPP_PLUGIN_EXECUTABLE NAMES grpc_cpp_plugin)
+if(NOT GRPC_CPP_PLUGIN_EXECUTABLE)
+  message(FATAL_ERROR "grpc_cpp_plugin not found; please install protobuf-compiler-grpc or ensure it is on PATH")
+endif()
+
+set(ALL_SRCS)
+set(ALL_HDRS)
 foreach(proto ${PROTO_FILES})
   get_filename_component(fname ${proto} NAME_WE)
-  protobuf_generate_cpp(${fname}_PB_SRC ${fname}_PB_HDR ${proto} PROTOC_OUT_DIR ${GENERATED_DIR})
-  grpc_generate_cpp(${fname}_GRPC_SRC ${fname}_GRPC_HDR ${proto} PROTOC_OUT_DIR ${GENERATED_DIR})
-  list(APPEND ALL_PB_SRCS ${${fname}_PB_SRC})
-  list(APPEND ALL_PB_HDRS ${${fname}_PB_HDR})
-  list(APPEND ALL_GRPC_SRCS ${${fname}_GRPC_SRC})
-  list(APPEND ALL_GRPC_HDRS ${${fname}_GRPC_HDR})
+  set(pb_cc   ${GENERATED_DIR}/${fname}.pb.cc)
+  set(pb_hdr  ${GENERATED_DIR}/${fname}.pb.h)
+  set(grpc_cc ${GENERATED_DIR}/${fname}.grpc.pb.cc)
+  set(grpc_hdr ${GENERATED_DIR}/${fname}.grpc.pb.h)
+
+  add_custom_command(
+    OUTPUT ${pb_cc} ${pb_hdr}
+    COMMAND ${PROTOC_EXECUTABLE}
+            --proto_path=${CMAKE_CURRENT_SOURCE_DIR}
+            --cpp_out=${GENERATED_DIR}
+            ${proto}
+    DEPENDS ${proto}
+    COMMENT "Generating C++ protobuf sources for ${fname}.proto"
+    VERBATIM)
+
+  add_custom_command(
+    OUTPUT ${grpc_cc} ${grpc_hdr}
+    COMMAND ${PROTOC_EXECUTABLE}
+            --proto_path=${CMAKE_CURRENT_SOURCE_DIR}
+            --grpc_out=${GENERATED_DIR}
+            --plugin=protoc-gen-grpc=${GRPC_CPP_PLUGIN_EXECUTABLE}
+            ${proto}
+    DEPENDS ${proto}
+    COMMENT "Generating gRPC C++ sources for ${fname}.proto"
+    VERBATIM)
+
+  list(APPEND ALL_SRCS ${pb_cc} ${grpc_cc})
+  list(APPEND ALL_HDRS ${pb_hdr} ${grpc_hdr})
 endforeach()
 
-add_library(hyperswitch_protos ${ALL_PB_SRCS} ${ALL_GRPC_SRCS})
+add_library(hyperswitch_protos ${ALL_SRCS})
 
 # Protobuf::libprotobuf target name differs between module/config; use imported vars
 if(TARGET protobuf::libprotobuf)
@@ -53,7 +87,16 @@ if(TARGET gRPC::grpc++)
 elseif(TARGET grpc++)
   set(_GRPCPP_LIB grpc++)
 else()
-  message(FATAL_ERROR "No gRPC++ target found")
+  # Fallback to pkg-config libraries if config targets are not available
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(GRPCPP QUIET grpc++)
+  endif()
+  if(GRPCPP_FOUND)
+    set(_GRPCPP_LIB ${GRPCPP_LIBRARIES})
+  else()
+    message(FATAL_ERROR "No gRPC++ target found")
+  endif()
 endif()
 
 # absl is not strictly needed; drop explicit absl link for portability
