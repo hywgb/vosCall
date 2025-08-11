@@ -1,5 +1,6 @@
 #include "auth_service_impl.hpp"
 #include <spdlog/spdlog.h>
+#include <pqxx/zview.hxx>
 
 using hyperswitch::auth::SipAuthRequest;
 using hyperswitch::auth::SipAuthResponse;
@@ -14,7 +15,7 @@ AuthServiceImpl::AuthServiceImpl(hs::Pg* pg, hs::RedisClient* redis, int cpsLimi
 ::grpc::Status AuthServiceImpl::SipAuth(::grpc::ServerContext*, const SipAuthRequest* req, SipAuthResponse* resp) {
   try {
     pqxx::work tx(pg_->conn());
-    auto r = tx.exec_params("SELECT a.account_code, t.name FROM core.trunks t JOIN core.accounts a ON a.account_id=t.account_id WHERE t.auth_mode='ip' AND (t.auth_data->>'ip')=$1 AND t.enabled=true LIMIT 1", req->src_ip());
+    auto r = tx.exec(pqxx::zview("SELECT a.account_code, t.name FROM core.trunks t JOIN core.accounts a ON a.account_id=t.account_id WHERE t.auth_mode='ip' AND (t.auth_data->>'ip')=$1 AND t.enabled=true LIMIT 1"), pqxx::params{req->src_ip()});
     if (r.empty()) { resp->set_allowed(false); resp->set_reason("ip not allowed"); return ::grpc::Status::OK; }
     resp->set_allowed(true);
     resp->set_account_code(r[0][0].as<std::string>());
