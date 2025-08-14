@@ -8,8 +8,49 @@ target_include_directories(admin-api PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
 
 find_package(nlohmann_json CONFIG REQUIRED)
 
-find_package(gRPC CONFIG REQUIRED)
-find_package(Protobuf CONFIG REQUIRED)
-find_package(httplib CONFIG REQUIRED)
+# Try config first, then module
+find_package(gRPC QUIET CONFIG)
+if(NOT gRPC_FOUND)
+  find_package(gRPC REQUIRED)
+endif()
+find_package(Protobuf QUIET CONFIG)
+if(NOT Protobuf_FOUND)
+  find_package(Protobuf REQUIRED)
+endif()
 
-target_link_libraries(admin-api PRIVATE hyperswitch_protos hs_common gRPC::grpc++ protobuf::libprotobuf nlohmann_json::nlohmann_json httplib::httplib)
+# Find httplib via config or pkg-config
+find_package(httplib CONFIG QUIET)
+if(NOT httplib_FOUND)
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(HTTPLIB REQUIRED cpp-httplib)
+    set(HTTPLIB_LIBS ${HTTPLIB_LIBRARIES})
+  endif()
+endif()
+
+# Resolve protobuf target
+if(TARGET protobuf::libprotobuf)
+  set(_PROTOBUF_LIB protobuf::libprotobuf)
+elseif(TARGET Protobuf::libprotobuf)
+  set(_PROTOBUF_LIB Protobuf::libprotobuf)
+elseif(TARGET Protobuf::protobuf)
+  set(_PROTOBUF_LIB Protobuf::protobuf)
+else()
+  message(FATAL_ERROR "No protobuf target found")
+endif()
+
+if(TARGET gRPC::grpc++)
+  set(_GRPCPP_LIB gRPC::grpc++)
+elseif(TARGET grpc++)
+  set(_GRPCPP_LIB grpc++)
+else()
+  message(FATAL_ERROR "No gRPC++ target found")
+endif()
+
+if(TARGET httplib::httplib)
+  target_link_libraries(admin-api PRIVATE hyperswitch_protos hs_common ${_GRPCPP_LIB} ${_PROTOBUF_LIB} nlohmann_json::nlohmann_json httplib::httplib)
+elseif(DEFINED HTTPLIB_LIBS)
+  target_link_libraries(admin-api PRIVATE hyperswitch_protos hs_common ${_GRPCPP_LIB} ${_PROTOBUF_LIB} nlohmann_json::nlohmann_json ${HTTPLIB_LIBS})
+else()
+  message(FATAL_ERROR "cpp-httplib not found; install libcpp-httplib-dev or vcpkg cpp-httplib")
+endif()

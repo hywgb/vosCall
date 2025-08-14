@@ -14,4 +14,4 @@ scrape_configs:
   - job_name: 'services'
     metrics_path: /metrics
     static_configs:
-      - targets: ['admin-api:8080','jobs-svc:9101']
+      - targets: ['admin-api:8080','jobs-svc:9101','route-svc:9102','billing-svc:9103','auth-svc:9104','observe-svc:9105','cdr-svc:9106']

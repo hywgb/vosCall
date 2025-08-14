@@ -1,10 +1,14 @@
 #pragma once
-#include <hyperswitch/routing/route.grpc.pb.h>
+#include <route.grpc.pb.h>
 #include <memory>
 #include <unordered_map>
+#include <atomic>
 #include <pqxx/pqxx>
 #include "common/pg.hpp"
 #include "common/redis.hpp"
+
+extern std::atomic<uint64_t> g_route_picks;
+extern std::atomic<uint64_t> g_route_pick_errors;
 
 namespace hs::routing {
 

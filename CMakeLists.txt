@@ -19,6 +19,9 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
   endif()
 endif()
 
+# Ensure spdlog uses header-only with std::format consistently
+add_compile_definitions(SPDLOG_HEADER_ONLY SPDLOG_USE_STD_FORMAT)
+
 add_subdirectory(protos)
 add_subdirectory(common)
 add_subdirectory(services/route-svc)

@@ -1,5 +1,5 @@
 #pragma once
-#include <hyperswitch/billing/billing.grpc.pb.h>
+#include <billing.grpc.pb.h>
 #include "common/pg.hpp"
 
 namespace hs::billing {
