@@ -2,6 +2,7 @@
 #include <spdlog/spdlog.h>
 #include <chrono>
 #include <cmath>
+#include <algorithm>
 
 namespace hs::observe {
 

@@ -43,14 +43,11 @@ int main() {
     } catch (const std::exception& ex) {
       ok = false; j["pg"] = ex.what();
     }
-    // gRPC route-svc readiness via Pick probe with tight deadline
+    // gRPC route-svc readiness via channel connectivity
     try {
-      grpc::ClientContext ctx;
-      ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::milliseconds(200));
-      hyperswitch::routing::PickRequest preq; // empty request is allowed; service should handle
-      hyperswitch::routing::PickResponse presp;
-      auto st = route_stub->Pick(&ctx, preq, &presp);
-      if (!st.ok()) { ok = false; j["route_svc"] = st.error_message(); } else { j["route_svc"] = "ok"; }
+      auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(300);
+      bool connected = channel->WaitForConnected(deadline);
+      if (!connected) { ok = false; j["route_svc"] = "not connected"; } else { j["route_svc"] = "ok"; }
     } catch (const std::exception& ex) { ok = false; j["route_svc"] = ex.what(); }
 
     res.status = ok ? 200 : 503;
